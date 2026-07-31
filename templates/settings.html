@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% set page = 'settings' %}
+{% block title %}Beállítások{% endblock %}
+
+{% block content %}
+  <header>
+    <h1>Beállítások</h1>
+    <div class="sub">
+      A megfigyelő pozíciója és a követett műholdak &middot;
+      az adatbázisban tárolva, a parancssori scriptek is ezt használják
+    </div>
+  </header>
+
+  {% for m in messages %}<div class="flash ok">{{ m }}</div>{% endfor %}
+  {% for e in errors %}<div class="flash err">{{ e }}</div>{% endfor %}
+
+  <form method="post" action="/settings">
+    <div class="card">
+      <h2 class="sec">Megfigyelő pozíciója</h2>
+      <div class="grid">
+        <label>
+          Szélesség (°)
+          <input type="number" name="lat" step="0.000001" min="-90" max="90"
+                 value="{{ values.lat }}" required>
+        </label>
+        <label>
+          Hosszúság (°)
+          <input type="number" name="lon" step="0.000001" min="-180" max="180"
+                 value="{{ values.lon }}" required>
+        </label>
+        <label>
+          Tengerszint feletti magasság (m)
+          <input type="number" name="alt" step="1" value="{{ values.alt }}"
+                 required>
+        </label>
+      </div>
+      <div class="hint">
+        A pozíció az átvonulás rekordok kulcsának része, ezért módosítás után
+        a következő frissítés újratölti az adatokat az új helyre.
+      </div>
+    </div>
+
+
+    <div class="card">
+      <h2 class="sec">Lekérdezés</h2>
+      <div class="grid">
+        <label>
+          Előrejelzés hossza (nap)
+          <input type="number" name="days" min="1" max="10"
+                 value="{{ values.days }}" required>
+        </label>
+        <label>
+          Minimális horizont feletti szög (°)
+          <input type="number" name="min_elevation" min="0" max="90"
+                 value="{{ values.min_elevation }}" required>
+        </label>
+      </div>
+      <div class="hint">
+        Az N2YO radiopasses végpontja legfeljebb 10 napot ad.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">Követett műholdak</h2>
+      <label class="block">
+        NORAD ID-k (soronként vagy vesszővel elválasztva)
+        <textarea name="norad_ids" rows="5"
+                  placeholder="25544&#10;33591">{{ norad_text }}</textarea>
+      </label>
+      <button type="submit" class="act" style="margin-top:.75rem">Mentés</button>
+    </div>
+  </form>
+
+  {% if stale.passes %}
+    <div class="card">
+      <h2 class="sec">Korábbi pozíciók adatai</h2>
+      <div class="hint" style="margin-top:0">
+        {{ stale.passes }} átvonulás ({{ stale.sats }} műhold)
+        {{ stale.places }} másik pozícióra van mentve. Ugyanazokat az
+        eseményeket írják le, csak más koordinátákkal — a listákból ki vannak
+        szűrve, de a számlálókat torzítják.
+      </div>
+      <form method="post" action="/settings/cleanup" style="margin-top:.75rem">
+        <button type="submit" class="act ghost">
+          {{ stale.passes }} elárvult átvonulás törlése
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
+  {# A törlőgombok külön űrlapok, ezért a lista a fenti űrlapon kívül van. #}
+  <div class="card">
+    <h2 class="sec">Jelenlegi lista</h2>
+    {% if tracked %}
+      <table class="tracked">
+        <tr>
+          <th>NORAD</th><th>Név</th><th>Mentett átvonulás</th><th></th>
+        </tr>
+        {% for norad, name in tracked %}
+          <tr>
+            <td>{{ norad }}</td>
+            <td>{{ name or '— (a következő letöltésnél derül ki)' }}</td>
+            <td>
+              {% if counts[norad] %}
+                <a href="/?norad_id={{ norad }}">{{ counts[norad] }}</a>
+              {% else %}0{% endif %}
+            </td>
+            <td style="text-align:right">
+              <form method="post" action="/settings/untrack">
+                <input type="hidden" name="norad_id" value="{{ norad }}">
+                <input type="hidden" name="next" value="/settings">
+                <button type="submit" class="tiny danger"
+                        title="Levétel a listáról">×</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <div class="hint">
+        Nincs követett műhold — a frissítés nem tölt le átvonulást.
+        Vedd fel a NORAD ID-t fent, vagy a Műholdak lapon.
+      </div>
+    {% endif %}
+
+    <form method="post" action="/settings/track" class="addrow">
+      <input type="hidden" name="next" value="/settings">
+      <input type="number" name="norad_id" min="1" max="999999"
+             placeholder="NORAD ID" required>
+      <button type="submit" class="tiny">+ hozzáadás</button>
+    </form>
+
+    <div class="hint">
+      A törlés csak a letöltési listáról vesz le; a már mentett átvonulások
+      megmaradnak az adatbázisban.
+    </div>
+  </div>
+{% endblock %}

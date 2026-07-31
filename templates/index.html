@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% from "_ops.html" import ops %}
+{% set page = 'passes' %}
+{% block title %}Következő átvonulások{% endblock %}
+
+{% block content %}
+  <header>
+    <h1>Következő átvonulások</h1>
+    <div class="sub">
+      {{ total }} átvonulás
+      {%- if sstv_count %}, <strong style="color:var(--sstv)">{{ sstv_count }} SSTV alatt</strong>{% endif %}
+      {%- if rove_count %}, <strong style="color:var(--rove)">{{ rove_count }} bejelentett aktivitás</strong>{% endif %}
+      &middot; frissítve {{ now.strftime('%Y-%m-%d %H:%M') }}
+      <br>
+      <a href="/settings">{{ '%.4f'|format(observer[0]) }},
+        {{ '%.4f'|format(observer[1]) }}</a> pozícióra
+    </div>
+  </header>
+
+  {% if satellites|length > 1 %}
+  <nav class="filters">
+    <a class="chip {{ 'active' if not selected }}" href="/">Mind</a>
+    {% for s in satellites %}
+      <a class="chip {{ 'active' if selected == s['norad_id'] }}"
+         href="/?norad_id={{ s['norad_id'] }}">{{ s['name'] }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if days %}
+    {% for day in days %}
+      <h2 class="day">{{ day.date|day_label|safe }}</h2>
+      {% for p in day.passes %}
+        <div class="card pass
+                    {{ 'now' if p.in_progress }}
+                    {{ 'rove' if p.activations }}
+                    {{ 'sstv' if p.sstv and not p.activations }}
+                    {{ 'next' if loop.first and day == days[0] and not p.in_progress }}">
+          <div class="time">
+            <span class="start">{{ p.start.strftime('%H:%M') }}</span>
+            <span class="end">{{ p.end.strftime('%H:%M') }}</span>
+          </div>
+          <div>
+            <div class="name">
+              {{ p.sat_name }}<span class="norad">NORAD {{ p.norad_id }}</span>
+            </div>
+            <div class="meta">
+              max <span class="el">{{ p.max_el }}°</span> {{ p.max_compass }}
+              <span class="sep">|</span>
+              {{ p.start_compass }} &rarr; {{ p.end_compass }}
+              <span class="sep">|</span>
+              {{ p.duration_min }} perc
+            </div>
+
+            {% for a in p.activations %}
+              <a class="tag rove" href="{{ a.url }}" target="_blank">
+                {{ a.callsign }}
+                {% if a.details %}<span class="what">{{ a.details }}</span>{% endif %}
+                {% if a.grids %}<span class="what">{{ a.grids }}</span>{% endif %}
+              </a>
+              {% if a.comment %}<div class="note">{{ a.comment }}</div>{% endif %}
+            {% endfor %}
+
+            {% if p.sstv %}
+              <a class="tag sstv" href="{{ p.sstv.url }}" target="_blank" rel="noopener">
+                SSTV
+                {% if p.sstv.details %}<span class="what">{{ p.sstv.details }}</span>{% endif %}
+              </a>
+              <div class="note">
+                {{ p.sstv.title }}
+                &mdash; {{ p.sstv.start.strftime('%m-%d %H:%M') }}
+                &ndash; {{ p.sstv.end.strftime('%m-%d %H:%M') }}
+              </div>
+            {% endif %}
+
+            {% for a in p.activity %}
+              <a class="tag heard"
+                 href="/reports/{{ p.norad_id }}?activity={{ a.activity }}"
+                 title="Ki és mikor hallotta">
+                {{ a.activity }}
+                <span class="what">hallották {{ a.age_hours|humanize_age }}
+                  ({{ a.reports }} jelentés)</span>
+              </a>
+            {% endfor %}
+
+            {{ ops(p.frequencies) }}
+
+            {% if p.transmitters %}
+              <div class="tx">
+                {% for t in p.transmitters[:4] %}
+                  <code title="{{ t.description }}"><span class="m">{{ t.mode }}</span>{{ t.freq }}</code>
+                {% endfor %}
+                {% if p.transmitters|length > 4 %}
+                  <a class="more" href="{{ p.satnogs_url }}" target="_blank" rel="noopener">
+                    +{{ p.transmitters|length - 4 }} további</a>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            <div class="src">
+              forrás:
+              <a href="{{ p.satnogs_url }}" target="_blank" rel="noopener">SatNOGS</a>
+              <span class="sep">·</span>
+              <a href="{{ p.amsat_url }}" target="_blank" rel="noopener">AMSAT</a>
+              {% for label, url in p.amsat_extra %}
+                <span class="sep">·</span>
+                <a href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="countdown">
+            {{ 'ÉPPEN MOST' if p.in_progress else p.starts_in|humanize }}
+          </div>
+        </div>
+      {% endfor %}
+    {% endfor %}
+  {% else %}
+    <div class="empty">
+      Nincs jövőbeli átvonulás az adatbázisban.
+      <br><code>python main.py --days 5</code>
+    </div>
+  {% endif %}
+{% endblock %}

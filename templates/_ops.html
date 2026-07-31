@@ -1,0 +1,32 @@
+{# Az amsat.org üzemi frekvenciatábláinak sorai egy műholdhoz. #}
+{% macro ops(frequencies, show_comment=false) %}
+  {% if frequencies %}
+    <div class="ops">
+      {% for f in frequencies %}
+        <div class="op">
+          <span class="cat">{{ f.category }}</span>
+          {% if f.uplink %}
+            <span><span class="lbl">fel</span>
+              <span class="f">{{ f.uplink }}</span> <span class="lbl">MHz</span></span>
+          {% endif %}
+          {% if f.ctcss %}
+            <span class="ctcss">CTCSS {{ f.ctcss|round(1) }} Hz</span>
+          {% endif %}
+          {% if f.downlink %}
+            <span><span class="lbl">le</span>
+              <span class="f">{{ f.downlink }}</span> <span class="lbl">MHz</span></span>
+          {% endif %}
+          {% if f.mode %}<span class="mode">{{ f.mode }}</span>{% endif %}
+          {% if f.via %}<span class="lbl">via {{ f.via }}</span>{% endif %}
+          {% if f.detail_url %}
+            <a class="lbl" href="{{ f.detail_url }}" target="_blank"
+               rel="noopener" style="margin-left:auto">{{ f.detail_host }} ↗</a>
+          {% endif %}
+          {% if show_comment and f.comment %}
+            <span class="cmt">{{ f.comment }}</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}

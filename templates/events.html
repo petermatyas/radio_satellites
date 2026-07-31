@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set page = 'events' %}
+{% block title %}Várható rádiós események{% endblock %}
+
+{% block content %}
+  <header>
+    <h1>Várható rádiós események</h1>
+    <div class="sub">
+      {{ items|length }} esemény &middot;
+      ARISS SSTV kampányok és hams.at aktivációk &middot;
+      frissítve {{ now.strftime('%Y-%m-%d %H:%M') }}
+    </div>
+  </header>
+
+  {% if items %}
+    {% for i in items %}
+      <div class="card pass {{ i.kind }}">
+        <div class="time">
+          <span class="start">{{ i.start.strftime('%m-%d') }}</span>
+          <span class="end">{{ i.start.strftime('%H:%M') }}{% if i.end %} &ndash; {{ i.end.strftime('%H:%M') }}{% endif %}</span>
+        </div>
+        <div>
+          <div class="name">
+            {% if i.url %}<a href="{{ i.url }}" target="_blank">{{ i.who }}</a>
+            {% else %}{{ i.who }}{% endif %}
+            <span class="norad">
+              {{ i.title }}{% if i.norad_id %} · NORAD {{ i.norad_id }}{% endif %}
+            </span>
+          </div>
+          {% if i.details %}
+            <div class="tag {{ i.kind }}">{{ i.details }}</div>
+          {% endif %}
+          {% if i.extra %}<div class="note">{{ i.extra }}</div>{% endif %}
+          <div class="src">
+            forrás:
+            {% for label, url in i.links %}
+              {%- if not loop.first %}<span class="sep">·</span>{% endif -%}
+              <a href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>
+            {%- endfor %}
+            {% if i.tracked %}
+              <span class="sep">·</span>
+              <a href="/?norad_id={{ i.norad_id }}">átvonulások</a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="countdown">
+          {{ 'FOLYAMATBAN' if i.starts_in <= 0 else i.starts_in|humanize }}
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty">
+      Nincs várható esemény az adatbázisban.
+      <br><code>python collect.py</code>
+    </div>
+  {% endif %}
+{% endblock %}

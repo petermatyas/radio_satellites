@@ -1,0 +1,15 @@
+# Adatbázis — letöltött adat, bármikor újragyűjthető a collect.py-vel
+sats.sqlite3
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# API kulcsok
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

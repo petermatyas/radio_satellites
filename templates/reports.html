@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% set page = 'passes' %}
+{% block title %}{{ sat_name }} — észlelések{% endblock %}
+
+{% block content %}
+  <header>
+    <h1>{{ sat_name }} — ki hallotta</h1>
+    <div class="sub">
+      {{ items|length }} bejelentés
+      {%- if selected %} a(z) {{ selected }} aktivitásról{% endif %} &middot;
+      AMSAT Live OSCAR Status &middot;
+      <a href="/?norad_id={{ norad_id }}">átvonulások</a>
+    </div>
+  </header>
+
+  {% if activities|length > 1 or selected %}
+    <nav class="filters">
+      <a class="chip {{ 'active' if not selected }}"
+         href="/reports/{{ norad_id }}">Mind</a>
+      {% for a in activities %}
+        <a class="chip {{ 'active' if selected == a['activity'] }}"
+           href="/reports/{{ norad_id }}?activity={{ a['activity'] }}">
+          {{ a['activity'] }} ({{ a['reports'] }})
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  {% if items %}
+    <div class="card">
+      <table class="reports">
+        <tr>
+          <th>Időpont (helyi)</th><th>UTC</th><th>Hívójel</th>
+          <th>Grid</th><th>Aktivitás</th><th>Jelentés</th>
+        </tr>
+        {% for i in items %}
+          <tr>
+            <td class="mono">{{ i.local.strftime('%m-%d %H:%M') }}</td>
+            <td class="mono dim">{{ i.utc.strftime('%m-%d %H:%M') }}</td>
+            <td class="mono call">{{ i.callsign }}</td>
+            <td class="mono dim">{{ i.grid or '—' }}</td>
+            <td class="dim">{{ i.activity }}</td>
+            <td><span class="badge {{ i.kind }}">{{ i.label }}</span></td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <div class="src">
+      Az adatbázisban az utolsó lekérdezés időablaka szerepel
+      (alapértelmezés: {{ window_hours }} óra) &middot;
+      forrás:
+      <a href="https://www.amsat.org/status/index.php" target="_blank"
+         rel="noopener">AMSAT status</a>
+      <span class="sep">·</span>
+      <a href="{{ amsat_url }}" target="_blank" rel="noopener">AMSAT</a>
+      <span class="sep">·</span>
+      <a href="{{ satnogs_url }}" target="_blank" rel="noopener">SatNOGS</a>
+    </div>
+  {% else %}
+    <div class="empty">
+      Nincs bejelentés erre a műholdra az adatbázisban.
+      <br><code>python amsat.py --hours 720</code>
+    </div>
+  {% endif %}
+{% endblock %}
