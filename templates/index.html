@@ -18,12 +18,37 @@
     </div>
   </header>
 
-  {% if satellites|length > 1 %}
+  {% if sat_filters|length > 1 %}
   <nav class="filters">
-    <a class="chip {{ 'active' if not selected }}" href="/">Mind</a>
-    {% for s in satellites %}
-      <a class="chip {{ 'active' if selected == s['norad_id'] }}"
-         href="/?norad_id={{ s['norad_id'] }}">{{ s['name'] }}</a>
+    <a class="chip {{ 'active' if not selected }}"
+       href="{{ all_satellites_url }}">Mind</a>
+    {% for s in sat_filters if not s.extra %}
+      <a class="chip {{ 'active' if s.active }}" href="{{ s.url }}">{{ s.name }}</a>
+    {% endfor %}
+    {% if hidden_count %}
+      {# A maradék csempét egy rejtett jelölő nyitja ki: újratöltés nélkül, és
+         JS nélkül is működik. A kiválasztott műhold sosem kerül ide. #}
+      <input type="checkbox" id="more-sats" class="more-toggle">
+      {% for s in sat_filters if s.extra %}
+        <a class="chip extra {{ 'active' if s.active }}"
+           href="{{ s.url }}">{{ s.name }}</a>
+      {% endfor %}
+      <label class="chip more show" for="more-sats">+{{ hidden_count }} további</label>
+      <label class="chip more hide" for="more-sats">kevesebb</label>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {# Mód szerinti szűrés. Csak azok a csempék jelennek meg, amikre a mostani
+     műholdválasztás mellett van találat; több mód együtt vagy-kapcsolat. #}
+  {% if mode_filters|length > 1 %}
+  <nav class="filters modes">
+    <span class="label">mód</span>
+    <a class="chip {{ 'active' if not modes }}"
+       href="{{ all_modes_url }}">Mind</a>
+    {% for m in mode_filters %}
+      <a class="chip {{ 'active' if m.active }}" href="{{ m.url }}">
+        {{ m.label }} <span class="count">{{ m.count }}</span></a>
     {% endfor %}
   </nav>
   {% endif %}
@@ -122,8 +147,13 @@
     {% endfor %}
   {% else %}
     <div class="empty">
-      Nincs jövőbeli átvonulás az adatbázisban.
-      <br><code>python main.py --days 5</code>
+      {% if selected or modes %}
+        A szűrésnek egy átvonulás sem felel meg.
+        <br><a href="/">szűrők törlése</a>
+      {% else %}
+        Nincs jövőbeli átvonulás az adatbázisban.
+        <br><code>python main.py --days 5</code>
+      {% endif %}
     </div>
   {% endif %}
 {% endblock %}

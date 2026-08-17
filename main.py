@@ -114,19 +114,34 @@ def collect(conn, norad_id, observer=None, days=None,
 
 def collect_tracked(conn, days=None, min_elevation=None,
                     force=False, verbose=True):
-    """Frissítés a Beállításokban megadott műholdakra és pozícióra."""
+    """Frissítés a Beállításokban megadott műholdakra és pozícióra.
+
+    A katalógus szerint nem aktív műholdakat (visszatért, dead, még nem
+    indult) kihagyjuk: érdemi átvonulás úgysem jönne rájuk, az N2YO napi
+    kvótáját viszont fogyasztanák. A listán maradnak, csak nem töltünk hozzá.
+    """
     saved = db.get_settings(conn)
     observer = (saved["lat"], saved["lon"], saved["alt"])
-    tracked = [norad for norad, _ in db.get_tracked(conn)] or [NORAD_ID]
+    tracked = db.get_tracked_status(conn)
+    active = [sat["norad_id"] for sat in tracked if not sat["reason"]] or (
+        [NORAD_ID] if not tracked else [])
+    skipped = [sat for sat in tracked if sat["reason"]]
+
+    if verbose:
+        for sat in skipped:
+            print(f"NORAD {sat['norad_id']}: nem aktív, kihagyva "
+                  f"— {sat['reason']}")
 
     total = 0
-    for norad_id in tracked:
+    for norad_id in active:
         total += len(collect(conn, norad_id, observer, days,
                              min_elevation, force, verbose))
     if verbose:
-        print(f"N2YO: {len(tracked)} műhold, {total} átvonulás letöltve "
-              f"({observer[0]}, {observer[1]})")
-    return {"satellites": len(tracked), "passes": total}
+        print(f"N2YO: {len(active)} műhold, {total} átvonulás letöltve "
+              f"({observer[0]}, {observer[1]})"
+              + (f"; {len(skipped)} nem aktív kihagyva" if skipped else ""))
+    return {"satellites": len(active), "passes": total,
+            "skipped": len(skipped)}
 
 
 def main():

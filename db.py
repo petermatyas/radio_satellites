@@ -177,10 +177,13 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Mely műholdakra töltsünk átvonulást.
+-- Mely műholdakra töltsünk átvonulást. Az active a katalógus státuszának
+-- kézi felülbírálása (NULL = a katalógus dönt), a note pedig ennek az oka.
 CREATE TABLE IF NOT EXISTS tracked_satellites (
     norad_id INTEGER PRIMARY KEY,
-    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    active   INTEGER,
+    note     TEXT
 );
 
 -- Pályaelemek a "hol jár most" grafikához. Műholdanként egy sor: mindig a
@@ -213,6 +216,20 @@ SETTING_TYPES = {"lat": float, "lon": float, "alt": float,
 # nagyjából tizedméteres felbontás — jóval a szükséges alatt.
 COORD_DECIMALS = 6
 
+# SatNOGS státuszok, amiknél nincs értelme átvonulást tölteni, és az ok
+# szövege a felülethez. Ami nincs a listán ("alive", vagy hiányzó érték),
+# az aktívnak számít.
+INACTIVE_STATUS = {
+    "dead": "A SatNOGS katalógus szerint már nem működik (dead).",
+    "re-entered": "Visszatért a légkörbe (re-entered), már nincs pályán.",
+    "future": "Még nem állt pályára (future), pályaelem sincs hozzá.",
+}
+
+# Amit a felület a katalógus felől mutat, ha az nem tekinti inaktívnak.
+CATALOG_ACTIVE = {"alive": "A SatNOGS katalógus szerint működik (alive)."}
+
+MANUAL_INACTIVE = "Kézzel nem aktívra állítva."
+
 
 def normalize_observer(lat, lon, alt):
     return (round(float(lat), COORD_DECIMALS),
@@ -237,6 +254,10 @@ ADDED_COLUMNS = {
     "sstv_events": {
         "source_url": "TEXT",  # a letöltött oldal
         "info_url": "TEXT",    # a bejegyzésben szereplő hivatkozás, ha van
+    },
+    "tracked_satellites": {
+        "active": "INTEGER",  # kézi felülbírálás; NULL = a katalógus dönt
+        "note": "TEXT",       # a felülbírálás indoklása
     },
 }
 
@@ -353,12 +374,100 @@ def get_tracked(conn):
     )]
 
 
+def inactive_reason(row):
+    """Miért nem aktív a műhold — None, ha aktív.
+
+    A sor a satellites tábla mezőit tartalmazza. A hiányzó (LEFT JOIN-ból
+    NULL) vagy ismeretlen státusz nem számít inaktívnak: az N2YO-ról felvett,
+    a SatNOGS katalógusban nem szereplő műholdakat (időjárási, GOES) nem
+    akarjuk emiatt kihagyni a letöltésből.
+    """
+    if row is None:
+        return None
+    if row["decayed"]:
+        return (f"Visszatért a légkörbe ({row['decayed'][:10]}), "
+                f"már nincs pályán.")
+    return INACTIVE_STATUS.get((row["status"] or "").lower())
+
+
+def name_sort_key(name, norad_id):
+    """Rendezési kulcs névhez: a számokat szám szerint veszi.
+
+    Így a "NOAA 9" a "NOAA 18" előtt jön, nem utána, ahogy a puszta
+    szövegösszehasonlítás adná. A név nélküli sorok — amiknek a nevét még nem
+    tölti le semmi — a lista végére kerülnek, holtversenyben a NORAD ID dönt.
+    """
+    if not name:
+        return (1, (), norad_id)
+    parts = tuple((int(part), "") if part.isdigit() else (0, part.lower())
+                  for part in re.split(r"(\d+)", name) if part)
+    return (0, parts, norad_id)
+
+
+def get_tracked_status(conn):
+    """A követett műholdak státusszal, név szerint rendezve, soronként egy dict.
+
+    A "reason" None az aktívaknál — a hívó ezzel dönti el, kell-e hozzá
+    átvonulást tölteni. A kézi beállítás (active oszlop) mindig erősebb a
+    katalógusnál: a SatNOGS a nem amatőr műholdakat nem gondozza, a NOAA 19
+    státusza például 2022 óta változatlanul "alive", pedig a műhold azóta
+    lekapcsolt.
+    """
+    rows = []
+    for r in conn.execute(
+        "SELECT t.norad_id, t.active, t.note, s.name, s.status, s.decayed "
+        "FROM tracked_satellites t "
+        "LEFT JOIN satellites s ON s.norad_id = t.norad_id "
+        "ORDER BY t.norad_id"
+    ):
+        catalog = inactive_reason(r)
+        if r["active"] == 0:
+            reason = r["note"] or MANUAL_INACTIVE
+        elif r["active"] == 1:
+            reason = None
+        else:
+            reason = catalog
+        rows.append({
+            "norad_id": r["norad_id"],
+            "name": r["name"],
+            "reason": reason,
+            "manual": None if r["active"] is None else bool(r["active"]),
+            "note": r["note"],
+            "catalog": catalog or CATALOG_ACTIVE.get((r["status"] or "").lower()),
+        })
+    rows.sort(key=lambda sat: name_sort_key(sat["name"], sat["norad_id"]))
+    return rows
+
+
+def set_tracked_status(conn, norad_id, active, note=None):
+    """A katalógus státuszának kézi felülbírálása egy műholdra.
+
+    active: None — a katalógus dönt, False — nem aktív, True — aktív.
+    """
+    note = (note or "").strip() or None
+    conn.execute(
+        "UPDATE tracked_satellites SET active = ?, note = ? WHERE norad_id = ?",
+        (None if active is None else int(active), note, int(norad_id)))
+    conn.commit()
+
+
 def set_tracked(conn, norad_ids):
-    """A követett műholdak listájának felülírása."""
+    """A követett műholdak listájának felülírása.
+
+    A listán maradó műholdak sorát nem írjuk újra, csak a lekerülőket töröljük:
+    így a kézi státusz (active, note) és a felvétel ideje megmarad, amikor a
+    Beállítások mentése ezt a listát újraküldi.
+    """
     wanted = sorted({int(n) for n in norad_ids})
-    conn.execute("DELETE FROM tracked_satellites")
-    conn.executemany("INSERT INTO tracked_satellites (norad_id) VALUES (?)",
-                     [(n,) for n in wanted])
+    if wanted:
+        placeholders = ", ".join("?" for _ in wanted)
+        conn.execute("DELETE FROM tracked_satellites "
+                     f"WHERE norad_id NOT IN ({placeholders})", wanted)
+    else:
+        conn.execute("DELETE FROM tracked_satellites")
+    conn.executemany(
+        "INSERT OR IGNORE INTO tracked_satellites (norad_id) VALUES (?)",
+        [(n,) for n in wanted])
     conn.commit()
     return wanted
 
@@ -369,6 +478,26 @@ def track(conn, norad_id):
                  "VALUES (?)", (int(norad_id),))
     conn.commit()
     return [n for n, _ in get_tracked(conn)]
+
+
+def track_many(conn, norad_ids):
+    """Több műhold felvétele egyszerre; a már listán lévőket nem bántja.
+
+    Csak az újonnan felvett azonosítókat adja vissza, hogy a hívó meg tudja
+    mondani, mi került fel és mi volt már a listán.
+    """
+    wanted = sorted({int(n) for n in norad_ids})
+    if not wanted:
+        return []
+    placeholders = ", ".join("?" for _ in wanted)
+    existing = {r[0] for r in conn.execute(
+        "SELECT norad_id FROM tracked_satellites "
+        f"WHERE norad_id IN ({placeholders})", wanted)}
+    added = [n for n in wanted if n not in existing]
+    conn.executemany("INSERT INTO tracked_satellites (norad_id) VALUES (?)",
+                     [(n,) for n in added])
+    conn.commit()
+    return added
 
 
 def untrack(conn, norad_id):
@@ -818,6 +947,40 @@ def get_reports(conn, norad_id, since_iso=None, activity=None, limit=500):
     return conn.execute(sql, params).fetchall()
 
 
+def count_upcoming_passes(conn, observer, since):
+    """NORAD ID -> hány még véget nem ért átvonulás van mentve a pozícióra.
+
+    A szűrőcsempék sorrendjéhez kell: a sűrűn látható műholdak kerüljenek
+    előre, ne azok, amikhez csak régi, már lefutott átvonulások vannak.
+    """
+    return {row["norad_id"]: row["passes"] for row in conn.execute(
+        "SELECT norad_id, COUNT(*) AS passes FROM passes "
+        "WHERE end_utc >= ? AND observer_lat = ? AND observer_lon = ? "
+        "GROUP BY norad_id", (int(since), observer[0], observer[1]))}
+
+
+def get_nonamateur_modes(conn, norad_ids=None):
+    """NORAD ID -> az aktív, nem amatőr adók üzemmódjai.
+
+    A kártyán csak az amatőr transzponderek látszanak, ezért az időjárási
+    műholdak képadása (APT, HRPT, LRPT) kimarad belőlük. A mód szerinti
+    szűréshez viszont kell, különben egy NOAA átvonulásra semmilyen mód nem
+    illeszkedne.
+    """
+    sql = ("SELECT norad_id, mode FROM transmitters "
+           "WHERE status = 'active' AND norad_id IS NOT NULL "
+           "AND mode IS NOT NULL AND (is_amateur IS NULL OR is_amateur = 0)")
+    params = []
+    if norad_ids:
+        sql += f" AND norad_id IN ({','.join('?' * len(norad_ids))})"
+        params = list(norad_ids)
+
+    by_sat = {}
+    for row in conn.execute(sql, params):
+        by_sat.setdefault(row["norad_id"], set()).add(row["mode"])
+    return by_sat
+
+
 def get_report_activities(conn, norad_id, since_iso=None):
     """Milyen aktivitásokról van egyáltalán jelentésünk az adott műholdhoz.
 
@@ -923,9 +1086,46 @@ def record_fetch(conn, norad_id, observer, min_elevation, covered_until):
     conn.commit()
 
 
-def get_passes(conn, norad_id=None, limit=None, since=None, observer=None):
+def _iter_norad_tokens(value):
+    """Végigmegy a bemeneten: a listákat kibontja, a szöveget vesszőnél vágja."""
+    if value is None:
+        return
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _iter_norad_tokens(item)
+    elif isinstance(value, str):
+        for part in value.split(","):
+            if part.strip():
+                yield part.strip()
+    else:
+        yield value
+
+
+def _normalize_norad_ids(value):
+    """NORAD ID-k egész számok listájára.
+
+    Elfogad egy értéket, listát és vesszővel elválasztott szöveget is. Az
+    értelmezhetetlen elemeket kihagyja, az ismétlődéseket kiszűri — utóbbi
+    azért, hogy ugyanaz a műhold ne kerüljön kétszer az IN (...) szűrőbe.
+    """
+    ids = []
+    for token in _iter_norad_tokens(value):
+        try:
+            norad = int(token)
+        except (TypeError, ValueError):
+            continue
+        if norad not in ids:
+            ids.append(norad)
+    return ids
+
+
+def get_passes(conn, norad_id=None, norad_ids=None, limit=None, since=None,
+              observer=None):
     """Mentett átvonulások lekérdezése időrendben.
 
+    norad_id / norad_ids: egy vagy több műhold NORAD azonosítója. A többes
+    kiválasztásra a norad_ids listát használjuk, a norad_id pedig a régi,
+    egyműholdas hívásokat támogatja továbbra is.
     since:    unix time; csak azok az átvonulások, amik ekkor még nem értek
               véget (a most zajló átvonulás is benne marad).
     observer: (lat, lon); pozícióváltás után a régi helyre számolt
@@ -936,9 +1136,16 @@ def get_passes(conn, norad_id=None, limit=None, since=None, observer=None):
         "LEFT JOIN satellites s ON s.norad_id = p.norad_id"
     )
     where, params = [], []
-    if norad_id is not None:
-        where.append("p.norad_id = ?")
-        params.append(norad_id)
+
+    # A nem értelmezhető szűrő ugyanaz, mint ha nem lenne kiválasztva műhold:
+    # ilyenkor az összes átvonulás jön, ahogy szűrő nélkül is.
+    selected = _normalize_norad_ids(
+        norad_ids if norad_ids is not None else norad_id)
+    if selected:
+        placeholders = ", ".join("?" for _ in selected)
+        where.append(f"p.norad_id IN ({placeholders})")
+        params.extend(selected)
+
     if since is not None:
         where.append("p.end_utc >= ?")
         params.append(int(since))

@@ -58,15 +58,6 @@
       <div class="hint">
         Az N2YO radiopasses végpontja legfeljebb 10 napot ad.
       </div>
-    </div>
-
-    <div class="card">
-      <h2 class="sec">Követett műholdak</h2>
-      <label class="block">
-        NORAD ID-k (soronként vagy vesszővel elválasztva)
-        <textarea name="norad_ids" rows="5"
-                  placeholder="25544&#10;33591">{{ norad_text }}</textarea>
-      </label>
       <button type="submit" class="act" style="margin-top:.75rem">Mentés</button>
     </div>
   </form>
@@ -88,9 +79,22 @@
     </div>
   {% endif %}
 
-  {# A törlőgombok külön űrlapok, ezért a lista a fenti űrlapon kívül van. #}
+  {# A felvétel és a törlés külön űrlapok, ezért a lista a fenti űrlapon
+     kívül van: a pozíció mentése és a lista módosítása független egymástól. #}
   <div class="card">
-    <h2 class="sec">Jelenlegi lista</h2>
+    <h2 class="sec">Követett műholdak</h2>
+
+    {# Egyszerre több azonosító is megadható; vessző, szóköz és új sor is
+       elválasztó, hogy máshonnan kimásolt lista is beilleszthető legyen. #}
+    <form method="post" action="/settings/track" class="addrow">
+      <input type="hidden" name="next" value="/settings">
+      <input type="text" name="norad_ids" inputmode="numeric"
+             pattern="[\s,;0-9]*" placeholder="NORAD ID-k, pl. 25544, 33591"
+             title="Egy vagy több NORAD ID, vesszővel vagy szóközzel elválasztva"
+             required>
+      <button type="submit" class="tiny">+ hozzáadás</button>
+    </form>
+
     {% if tracked %}
       {# A fejlécre kattintva rendezhető. Szándékosan a böngészőben, nem
          újratöltéssel: a lap tetején lévő űrlapba beírt, még nem mentett
@@ -99,27 +103,56 @@
         <thead>
           <tr>
             <th data-sort="num">NORAD</th>
-            <th data-sort="text">Név</th>
+            {# A lista név szerint jön a szerverről, ezért a nyíl is itt áll:
+               így az első kattintás megfordítja, nem újra ugyanezt rendezi. #}
+            <th data-sort="text" aria-sort="ascending">Név</th>
+            <th data-sort="text">Állapot</th>
             <th data-sort="num">Mentett átvonulás</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-        {% for norad, name in tracked %}
+        {% for sat in tracked %}
           <tr>
-            <td>{{ norad }}</td>
+            <td>{{ sat.norad_id }}</td>
             {# A név nélküli sorok rendezéskor mindig a végére kerülnek. #}
-            <td data-key="{{ name or '' }}">
-              {{- name or '— (a következő letöltésnél derül ki)' -}}
+            <td data-key="{{ sat.name or '' }}">
+              {{- sat.name or '— (a következő letöltésnél derül ki)' -}}
             </td>
-            <td data-key="{{ counts[norad] }}">
-              {% if counts[norad] %}
-                <a href="/?norad_id={{ norad }}">{{ counts[norad] }}</a>
+            {# A nem aktív jelzés lenyitható: az ok a katalógus státuszából
+               jön, és egyben azt is megmagyarázza, miért nincs új átvonulás. #}
+            <td data-key="{{ 'nem aktív' if sat.reason else 'aktív' }}">
+              {% if sat.reason %}
+                <details class="why">
+                  <summary class="badge warn">nem aktív</summary>
+                  <div class="note">{{ sat.reason }}
+                    Ehhez a műholdhoz a frissítés nem tölt le átvonulást.</div>
+                </details>
+              {% elif sat.catalog %}
+                {# Kézi felülbírálásnál a katalógus véleménye ellentmondhat az
+                   aktív jelzésnek, ezért itt is kiírjuk, honnan jön. #}
+                <details class="why">
+                  <summary class="badge ok">aktív</summary>
+                  <div class="note">
+                    {%- if sat.manual %}Kézzel aktívra állítva. {% endif -%}
+                    {{ sat.catalog }}
+                  </div>
+                </details>
+              {% else %}
+                <span class="badge ok">aktív</span>
+              {% endif %}
+            </td>
+            <td data-key="{{ counts[sat.norad_id] }}">
+              {% if counts[sat.norad_id] %}
+                <a href="/?norad_id={{ sat.norad_id }}">{{ counts[sat.norad_id] }}</a>
               {% else %}0{% endif %}
             </td>
             <td style="text-align:right">
-              <form method="post" action="/settings/untrack">
-                <input type="hidden" name="norad_id" value="{{ norad }}">
+              {# A × véglegesen leveszi a sort, ezért visszakérdezünk; a
+                 kérdésben a név is benne van, hogy ne rossz sort hagyjunk jóvá. #}
+              <form method="post" action="/settings/untrack"
+                    data-confirm="Biztosan leveszed a követett műholdak közül: {{ sat.name or '(még név nélkül)' }} (NORAD {{ sat.norad_id }})? A már letöltött átvonulásai megmaradnak az adatbázisban.">
+                <input type="hidden" name="norad_id" value="{{ sat.norad_id }}">
                 <input type="hidden" name="next" value="/settings">
                 <button type="submit" class="tiny danger"
                         title="Levétel a listáról">×</button>
@@ -132,20 +165,15 @@
     {% else %}
       <div class="hint">
         Nincs követett műhold — a frissítés nem tölt le átvonulást.
-        Vedd fel a NORAD ID-t fent, vagy a Műholdak lapon.
+        Vedd fel a NORAD ID-ket a fenti mezőben, vagy a Műholdak lapon.
       </div>
     {% endif %}
 
-    <form method="post" action="/settings/track" class="addrow">
-      <input type="hidden" name="next" value="/settings">
-      <input type="number" name="norad_id" min="1" max="999999"
-             placeholder="NORAD ID" required>
-      <button type="submit" class="tiny">+ hozzáadás</button>
-    </form>
-
     <div class="hint">
       A törlés csak a letöltési listáról vesz le; a már mentett átvonulások
-      megmaradnak az adatbázisban.
+      megmaradnak az adatbázisban. A nem aktív műholdak a listán maradnak,
+      de nem kérünk hozzájuk új átvonulást — a jelzésre kattintva látszik,
+      hogy miért.
     </div>
   </div>
 {% endblock %}

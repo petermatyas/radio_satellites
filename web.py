@@ -491,10 +491,135 @@ def humanize_age(hours):
     return f"{hours // 24} napja"
 
 
+def normalize_norad_id_values(raw_values):
+    """Többszörös vagy vesszővel elkülönített NORAD ID-ket normalizálja."""
+    values = raw_values or []
+    if isinstance(values, (str, int)):
+        values = [values]
+    ids = []
+    for raw in values:
+        if isinstance(raw, (list, tuple, set)):
+            ids.extend(normalize_norad_id_values(raw))
+            continue
+        for part in str(raw).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if part.isdigit():
+                value = int(part)
+                if value not in ids:
+                    ids.append(value)
+    return ids
+
+
+# A szűrőhöz a sok tucat nyers üzemmódot néhány gyakorlati csoportba vonjuk
+# össze: a hallgató arra szűr, hogy mit tud fogni, nem a moduláció betűszavára.
+# A sorrend a csempék sorrendje is.
+MODE_GROUPS = [
+    ("fm", "FM"),
+    ("ssb", "SSB/CW"),
+    ("sstv", "SSTV/kép"),
+    ("digi", "APRS/digi"),
+    ("weather", "Időjárási kép"),
+    ("data", "Telemetria"),
+    ("datv", "DATV"),
+]
+MODE_LABELS = dict(MODE_GROUPS)
+
+# Ennyi műhold-csempe látszik alapból a következő átvonulások szűrőjében; a
+# többi a "+N további" feliratra nyílik ki. Néhány tucat követett műholdnál a
+# teljes sor elnyomná magát a listát.
+VISIBLE_CHIPS = 6
+
+# A SatNOGS mód mezőjének első szava dönt: a "FSK AX.100 Mode 5" vagy a
+# "BPSK PMT-A3" ugyanabba a csoportba tartozik, mint a puszta FSK és BPSK.
+# Ami nincs a táblában (GMSK, LoRa, DOKA...), az telemetria.
+MODE_ALIASES = {
+    "FM": "fm", "FMN": "fm",
+    "USB": "ssb", "LSB": "ssb", "SSB": "ssb", "CW": "ssb", "AM": "ssb",
+    "SSTV": "sstv", "SSDV": "sstv",
+    "APRS": "digi",
+    "APT": "weather", "HRPT": "weather", "LRPT": "weather",
+    "DVB-S2": "datv", "DVB-S": "datv", "DATV": "datv",
+}
+
+# Az amsat.org üzemi táblájának kategóriái — ez a felhasználói szemlélet, a
+# moduláció helyett a szolgáltatás fajtája.
+CATEGORY_MODES = {
+    "fm": "fm",
+    "linear": "ssb",
+    "image": "sstv",
+    "digipeater": "digi",
+}
+
+# Az időjárási képadás nem amatőr szolgálat, ezért ezek a módok csak a nem
+# amatőr adók közül jönnek (lásd db.get_nonamateur_modes).
+WEATHER_MODES = {"APT", "HRPT", "LRPT"}
+
+
+def mode_group(raw):
+    """Nyers üzemmód -> csoportkulcs; ismeretlen esetén telemetria."""
+    token = (raw or "").strip().split()[0].upper() if (raw or "").strip() else ""
+    if not token:
+        return None
+    return MODE_ALIASES.get(token, "data")
+
+
+def pass_mode_groups(entry, extra_modes=()):
+    """Egy átvonuláshoz tartozó módcsoportok halmaza.
+
+    Ugyanabból az adatból dolgozik, amit a kártya is mutat: a transzponderek,
+    az amsat.org üzemi sorai, a futó SSTV esemény és a bejelentett aktivitások.
+    Az extra_modes a nem amatőr (időjárási) adók módjait hozza, amik a
+    kártyán nem szerepelnek, de fogni lehet őket.
+    """
+    groups = set()
+    for tx in entry["transmitters"]:
+        # Az APRS digipeater csak a leírásban különül el a telemetriától.
+        text = (tx["description"] or "").lower()
+        if "aprs" in text or "digi" in text:
+            groups.add("digi")
+        else:
+            groups.add(mode_group(tx["mode"]))
+    for freq in entry["frequencies"]:
+        groups.add(CATEGORY_MODES.get((freq["category"] or "").lower())
+                   or mode_group(freq["mode"]))
+    for activation in entry["activations"]:
+        groups.add(mode_group(activation["details"].split(" · ")[0]))
+    if entry["sstv"]:
+        groups.add("sstv")
+    for raw in extra_modes:
+        if (raw or "").strip().split()[0].upper() in WEATHER_MODES:
+            groups.add("weather")
+    groups.discard(None)
+    return groups
+
+
+def normalize_modes(raw_values):
+    """A kért módcsoportok, a csempék sorrendjében; az ismeretlent elhagyjuk."""
+    wanted = {str(value).strip().lower() for value in raw_values or []}
+    return [key for key, _ in MODE_GROUPS if key in wanted]
+
+
+def pass_filter_url(norad_ids, modes):
+    """A következő átvonulások lapja a megadott szűrőkkel."""
+    params = ([("norad_id", n) for n in norad_ids]
+              + [("mode", m) for m in modes])
+    return "/?" + urlencode(params) if params else "/"
+
+
+def toggled(values, value):
+    """A kiválasztott elemek listája a value be- vagy kikapcsolása után."""
+    if value in values:
+        return [v for v in values if v != value]
+    return list(values) + [value]
+
+
 @app.route("/")
 def index():
     now = int(time.time())
-    norad_id = request.args.get("norad_id", type=int)
+    selected = normalize_norad_id_values(request.args.getlist("norad_id"))
+    modes = normalize_modes(request.args.getlist("mode"))
     since_iso = ((datetime.now(timezone.utc)
                   - timedelta(hours=ACTIVITY_WINDOW_HOURS))
                  .strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -505,9 +630,10 @@ def index():
         # letöltöttek bent maradnak az adatbázisban, de nem keverednek ide.
         config = db.get_settings(conn)
         observer = (config["lat"], config["lon"])
-        rows = db.get_passes(conn, norad_id=norad_id, since=now,
+        rows = db.get_passes(conn, norad_ids=selected or None, since=now,
                              observer=observer)
         satellites = db.get_satellites(conn, observer=observer)
+        upcoming = db.count_upcoming_passes(conn, observer, now)
         # Néhány műholdra sok átvonulás jut, ezért a kiegészítő adatokat
         # egyszer olvassuk be, és memóriában párosítjuk.
         norads = {r["norad_id"] for r in rows}
@@ -515,6 +641,7 @@ def index():
             "SELECT norad_id, sat_id, website FROM satellites")}
         transmitters = db.get_transmitter_map(conn, norads)
         frequencies = db.get_frequency_map(conn, norads)
+        other_modes = db.get_nonamateur_modes(conn, norads)
         websites = db.get_amsat_websites(conn)
         activity = db.get_activity_map(conn, since_iso)
         sstv_events = db.get_sstv_intervals(conn, now)
@@ -541,7 +668,7 @@ def index():
         entry = catalog.get(sat)
         info_url, info_host = satellite_info_url(
             entry["website"] if entry else None, sat)
-        passes.append(format_pass(row, now, {
+        item = format_pass(row, now, {
             "sstv": format_sstv(sstv[0]) if sstv else None,
             "activations": [format_activation(a) for a in roves],
             "transmitters": [format_transmitter(t)
@@ -565,7 +692,18 @@ def index():
             "sky_now": (arc_point(sky, pass_progress(row, now))
                         if sky and row["start_utc"] <= now <= row["end_utc"]
                         else None),
-        }))
+        })
+        item["modes"] = sorted(pass_mode_groups(item, other_modes.get(sat, ())),
+                               key=lambda key: list(MODE_LABELS).index(key))
+        passes.append(item)
+
+    # A módcsempéket a műholdszűrés eredményéből számoljuk, de a módszűrés
+    # előtti állapotból: így csak olyan csempe jelenik meg, amire van találat,
+    # és a darabszám a rákattintás utáni listával egyezik.
+    mode_counts = {key: sum(1 for p in passes if key in p["modes"])
+                   for key, _ in MODE_GROUPS}
+    if modes:
+        passes = [p for p in passes if any(m in p["modes"] for m in modes)]
 
     # Napokra bontva, hogy a lista olvasható maradjon.
     days = []
@@ -575,14 +713,45 @@ def index():
             days.append({"date": day, "passes": []})
         days[-1]["passes"].append(p)
 
+    # A csempesor kompakt: alapból a legtöbb jövőbeli átvonulást adó néhány
+    # műhold látszik, és amit épp kiválasztottunk — hogy a bekapcsolt szűrőt
+    # mindig lehessen kikapcsolni. A sorrend a névsor marad, csak a rejtés
+    # dől el a gyakoriság szerint.
+    frequent = sorted(satellites,
+                      key=lambda s: (-upcoming.get(s["norad_id"], 0),
+                                     s["name"] or ""))[:VISIBLE_CHIPS]
+    visible = {s["norad_id"] for s in frequent} | set(selected)
+    sat_filters = [{
+        "norad_id": s["norad_id"],
+        "name": s["name"],
+        "active": s["norad_id"] in selected,
+        "extra": s["norad_id"] not in visible,
+        "url": pass_filter_url(toggled(selected, s["norad_id"]), modes),
+    } for s in satellites]
+
+    # A két szűrő egymástól függetlenül kapcsolható: a csempe URL-je a másik
+    # szűrő állapotát mindig megtartja.
+    mode_filters = [{
+        "key": key,
+        "label": MODE_LABELS[key],
+        "count": mode_counts[key],
+        "active": key in modes,
+        "url": pass_filter_url(selected, toggled(modes, key)),
+    } for key, _ in MODE_GROUPS if mode_counts[key]]
+
     return render_template(
         "index.html",
         days=days,
         total=len(passes),
         sstv_count=sum(1 for p in passes if p["sstv"]),
         rove_count=sum(len(p["activations"]) for p in passes),
-        satellites=satellites,
-        selected=norad_id,
+        selected=selected,
+        sat_filters=sat_filters,
+        hidden_count=sum(1 for s in sat_filters if s["extra"]),
+        all_satellites_url=pass_filter_url([], modes),
+        modes=modes,
+        mode_filters=mode_filters,
+        all_modes_url=pass_filter_url(selected, []),
         observer=observer,
         positions=positions,
         observer_xy=map_xy(observer[0], observer[1]),
@@ -785,6 +954,36 @@ def parse_norad_ids(text):
     return sorted(set(ids)), invalid
 
 
+def redirect_with(target, **params):
+    """303-as átirányítás, a nem üres paraméterekkel a cél URL query részében."""
+    query = urlencode({key: value for key, value in params.items() if value})
+    if query:
+        target += ("&" if "?" in target else "?") + query
+    return redirect(target, code=303)
+
+
+def track_feedback(args):
+    """A felvétel visszajelzése átirányítás után: (üzenetek, hibák).
+
+    Session nincs, ezért a /settings/track a query stringben adja át, mi
+    került fel a listára (added), mi volt már rajta (kept), és mit nem
+    sikerült értelmezni (invalid).
+    """
+    messages, errors = [], []
+    added, _ = parse_norad_ids(args.get("added"))
+    kept, _ = parse_norad_ids(args.get("kept"))
+    if added:
+        messages.append("Felvéve a követett műholdak közé: "
+                        + ", ".join(str(n) for n in added) + ".")
+    if kept:
+        messages.append("Már a listán volt: "
+                        + ", ".join(str(n) for n in kept) + ".")
+    _, invalid = parse_norad_ids(args.get("invalid"))
+    if invalid:
+        errors.append(f"Érvénytelen NORAD ID: {', '.join(invalid)}")
+    return messages, errors
+
+
 REPORT_LABELS = {
     "Heard": ("hallotta", "ok"),
     "Crew Active": ("legénység adott", "ok"),
@@ -868,10 +1067,10 @@ def settings():
     submitted = None
     try:
         if request.method == "POST":
-            # Előbb mindent ellenőrzünk, és csak hibátlan űrlapot mentünk: a
-            # követett műholdak listája felülíródna, egy elgépelt szélesség
-            # miatt nem veszhetnek el a többi mezőben megadott értékek.
-            numbers, ids = {}, []
+            # Előbb mindent ellenőrzünk, és csak hibátlan űrlapot mentünk: egy
+            # elgépelt szélesség miatt nem veszhetnek el a többi mezőben
+            # megadott értékek.
+            numbers = {}
             for key, cast in db.SETTING_TYPES.items():
                 raw = request.form.get(key)
                 try:
@@ -879,37 +1078,34 @@ def settings():
                 except (TypeError, ValueError):
                     errors.append(f"A(z) „{key}” mező értéke nem szám: {raw!r}")
 
-            ids, invalid = parse_norad_ids(request.form.get("norad_ids"))
-            if invalid:
-                errors.append(f"Érvénytelen NORAD ID: {', '.join(invalid)}")
-            elif not ids and db.get_tracked(conn):
-                # Üresen hagyott mező többnyire véletlen; a szándékos ürítés
-                # a soronkénti törlés gombbal megy.
-                errors.append("A NORAD ID mező üres. Ha törölni szeretnél, "
-                              "használd a lista melletti × gombot.")
-
             if errors:
                 submitted = request.form
             else:
                 db.save_settings(conn, numbers)
-                db.set_tracked(conn, ids)
                 messages.append(
                     f"Mentve: {numbers['lat']}, {numbers['lon']} "
-                    f"({numbers['alt']:g} m), {numbers['days']} nap, "
-                    f"{len(ids)} követett műhold.")
+                    f"({numbers['alt']:g} m), {numbers['days']} nap.")
+        else:
+            # A követés felvétele külön végpont (/settings/track), ami ide
+            # irányít vissza — a visszajelzését így a query stringből kapjuk.
+            track_msgs, track_errs = track_feedback(request.args)
+            messages += track_msgs
+            errors += track_errs
 
         values = db.get_settings(conn)
-        tracked = db.get_tracked(conn)
+        # A státusszal együtt: a nem aktív műholdakhoz nem tölt le átvonulást
+        # a frissítés, ezt a lista is jelzi.
+        tracked = db.get_tracked_status(conn)
         # A számláló csak a beállított pozícióra vonatkozzon, különben a
         # korábbi helyre letöltött, ugyanazokat az eseményeket leíró sorok
         # felduzzasztanák.
         observer = (values["lat"], values["lon"], values["alt"])
         counts = {
-            norad: conn.execute(
+            sat["norad_id"]: conn.execute(
                 "SELECT COUNT(*) FROM passes WHERE norad_id = ? "
                 "AND observer_lat = ? AND observer_lon = ?",
-                (norad, values["lat"], values["lon"])
-            ).fetchone()[0] for norad, _ in tracked
+                (sat["norad_id"], values["lat"], values["lon"])
+            ).fetchone()[0] for sat in tracked
         }
         stale = db.stale_positions(conn, observer)
     finally:
@@ -919,14 +1115,12 @@ def settings():
     # begépelni őket.
     if submitted:
         values = {key: submitted.get(key, values[key]) for key in values}
-        norad_text = submitted.get("norad_ids", "")
     else:
         values = {key: format_number(v) for key, v in values.items()}
-        norad_text = "\n".join(str(n) for n, _ in tracked)
 
     return render_template(
         "settings.html", values=values, tracked=tracked, counts=counts,
-        messages=messages, errors=errors, norad_text=norad_text, stale=stale,
+        messages=messages, errors=errors, stale=stale,
     )
 
 
@@ -945,15 +1139,34 @@ def cleanup_positions():
 
 @app.route("/settings/track", methods=["POST"])
 def track_satellite():
-    """Gyors felvétel a műholdlistáról."""
-    norad_id = request.form.get("norad_id", type=int)
-    if norad_id:
+    """Felvétel a követett listára, egyszerre több NORAD ID-vel is.
+
+    A Műholdak lap egyetlen azonosítót küld a norad_id mezőben, a Beállítások
+    szabad szöveges mezője pedig többet a norad_ids-ben — mindkettőt itt
+    fogadjuk, hogy egy helyen legyen az ellenőrzés.
+    """
+    ids, invalid = parse_norad_ids(" ".join(
+        request.form.getlist("norad_ids") + request.form.getlist("norad_id")))
+    added = []
+    if ids:
         conn = db.connect(app.config["DB_PATH"])
         try:
-            db.track(conn, norad_id)
+            added = db.track_many(conn, ids)
         finally:
             conn.close()
-    return redirect(request.form.get("next") or url_for("settings"), code=303)
+
+    target = request.form.get("next") or url_for("settings")
+    # A Műholdak lapon a sor maga jelzi a felvételt ("követve"), ezért csak a
+    # Beállítások lapra fűzzük hozzá a szöveges visszajelzést. Session nélkül
+    # a query string az egyetlen módja, hogy az átirányítás után is megmaradjon.
+    if urlparse(target).path != url_for("settings"):
+        return redirect(target, code=303)
+    return redirect_with(
+        target,
+        added=",".join(str(n) for n in added),
+        kept=",".join(str(n) for n in ids if n not in added),
+        invalid=" ".join(invalid),
+    )
 
 
 @app.route("/settings/untrack", methods=["POST"])
