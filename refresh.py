@@ -18,6 +18,7 @@ import hamsat
 import main as n2yo
 import satnogs
 import sstv
+import tle
 
 # Megjelenítendő név -> (kulcs, függvény). A sorrend számít: a SatNOGS
 # katalógus adja a NORAD ID-ket, amikre a többi forrás hivatkozik.
@@ -28,6 +29,7 @@ SOURCES = [
     ("amsatfreq", "Frekvenciatáblák (AMSAT)"),
     ("hamsat", "Aktivációk (hams.at)"),
     ("sstv", "SSTV események (ARISS)"),
+    ("tle", "Pályaelemek (Celestrak)"),
 ]
 SOURCE_KEYS = [key for key, _ in SOURCES]
 
@@ -55,6 +57,8 @@ def _run_source(key, conn):
         new, updated = db.save_sstv_events(conn, events)
         print(f"ARISS: {len(events)} bejegyzés ({new} új, {updated} frissítve)")
         return {"events": len(events)}
+    if key == "tle":
+        return tle.collect(conn)
     raise ValueError(f"ismeretlen forrás: {key}")
 
 

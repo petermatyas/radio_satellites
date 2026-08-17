@@ -71,6 +71,10 @@
   .time .end { display: block; font-size: .75rem; color: var(--muted); }
 
   .name { font-weight: 600; }
+  /* A név külső oldalra visz, de a kártya címe marad: nem festjük linkszínűre,
+     csak a szaggatott aláhúzás jelzi, hogy kattintható. */
+  .name a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line); }
+  .name a:hover { color: var(--accent); border-bottom-color: var(--accent); }
   .name .norad { font-weight: 400; font-size: .75rem; color: var(--muted); margin-left: .4rem; }
   .meta { font-size: .8125rem; color: var(--muted); }
   .meta .sep { opacity: .4; margin: 0 .4rem; }
@@ -78,6 +82,53 @@
 
   .countdown { text-align: right; font-size: .8125rem; color: var(--muted); white-space: nowrap; padding-top: .2rem; }
   .pass.now .countdown { color: var(--hot); font-weight: 600; }
+
+  /* "Hol jár most": égbolt-korong és világtérkép az átvonulás-kártyákon. */
+  .track {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: .75rem; margin-top: .5rem;
+  }
+  .track svg { flex: none; }
+  .track .sky { width: 5.2rem; height: 5rem; }
+  .track .map {
+    width: 9.5rem; height: 4.75rem; border-radius: 4px;
+    border: 1px solid var(--line);
+  }
+
+  /* A korong hátterét <use> emeli be a közös definícióból: a szabályoknak
+     ezért az eredeti helyére (#skygrid) kell illeszkedniük, nem a .sky
+     alá — a klónozott tartalom a leszármazott-szelektorral nem érhető el. */
+  #skygrid .ring { fill: none; stroke: var(--line); stroke-width: .02; }
+  #skygrid .horizon { fill: var(--bg); stroke: var(--muted); stroke-opacity: .5;
+                      stroke-width: .02; }
+  #skygrid .cross { stroke: var(--line); stroke-width: .015; fill: none; }
+  #skygrid .dir {
+    fill: var(--muted); font-size: .26px; text-anchor: middle;
+    font-family: inherit;
+  }
+  .sky .arc { fill: none; stroke: var(--accent); stroke-width: .06; stroke-linecap: round; }
+  .sky .rise { fill: var(--sstv); }
+  .sky .set { fill: none; stroke: var(--muted); stroke-width: .04; }
+  .sky .sat-sky, .map .sat-map { fill: var(--hot); }
+  .sky .sat-sky[hidden], .map .sat-map[hidden] { display: none; }
+
+  .map .sea { fill: var(--bg); }
+  .map .land {
+    fill: var(--line); stroke: var(--muted); stroke-opacity: .35;
+    stroke-width: 1; vector-effect: non-scaling-stroke;
+  }
+  .map .grid {
+    stroke: var(--muted); stroke-opacity: .3; stroke-width: 1;
+    stroke-dasharray: 2 3; vector-effect: non-scaling-stroke;
+  }
+  .map .path polyline {
+    fill: none; stroke: var(--accent); stroke-width: 1.6;
+    stroke-opacity: .8; vector-effect: non-scaling-stroke;
+  }
+  .map .home { stroke: var(--sstv); stroke-width: 1.6; fill: none; }
+
+  .track .where { font-size: .72rem; color: var(--muted); }
+  .track .where .warn { color: var(--hot); margin-left: .4rem; }
 
   .tag {
     display: inline-flex; align-items: center; gap: .35rem;
@@ -106,6 +157,15 @@
     color: var(--text);
   }
   .op .lbl { color: var(--muted); }
+  /* "Hallották" az üzemi soron: ugyanaz a jelentés, mint a kártya tetején
+     lévő címkéé, csak ahhoz a frekvenciához kötve, amin hallották. */
+  .op .heard {
+    padding: .05rem .4rem; border-radius: 4px; font-size: .7rem;
+    font-weight: 600; text-decoration: none; white-space: nowrap;
+    background: rgba(90,169,255,.12); color: var(--accent);
+    border: 1px solid rgba(90,169,255,.3);
+  }
+  .op a.heard:hover { background: rgba(90,169,255,.22); }
   .op .ctcss { color: var(--hot); font-weight: 600; }
   .op .mode { color: var(--muted); font-style: italic; }
   .op .cmt { flex-basis: 100%; color: var(--muted); font-size: .72rem; }
@@ -168,6 +228,12 @@
     background: var(--panel); border: 1px solid var(--line); font-size: .8125rem;
   }
   .status.busy { border-color: var(--accent); }
+  .status.done {
+    background: rgba(126,231,168,.12); border-color: rgba(126,231,168,.4);
+    color: var(--sstv);
+  }
+  .status.done pre { color: var(--sstv); opacity: .8; }
+  .status.fade { opacity: 0; transition: opacity .4s ease; }
   .status .head { display: flex; align-items: center; gap: .5rem; }
   .status .spin {
     width: .7rem; height: .7rem; border-radius: 50%;
@@ -229,9 +295,12 @@
   table.reports .dim { color: var(--muted); }
 
   .badge {
+    display: inline-block;
     padding: .1rem .45rem; border-radius: 4px; font-size: .72rem; font-weight: 600;
     white-space: nowrap;
   }
+  a.badge { text-decoration: none; border: 1px solid transparent; }
+  a.badge:hover { border-color: currentColor; }
   .badge.ok { background: rgba(126,231,168,.12); color: var(--sstv); }
   .badge.warn { background: rgba(255,176,87,.12); color: var(--hot); }
   .badge.bad { background: rgba(139,151,173,.12); color: var(--muted); }
@@ -242,7 +311,18 @@
     text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--line);
   }
   table.tracked td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
-  table.tracked tr:last-child td { border-bottom: none; }
+  table.tracked tbody tr:last-child td { border-bottom: none; }
+
+  table.sortable th[data-sort] { cursor: pointer; user-select: none; }
+  table.sortable th[data-sort]:hover { color: var(--text); }
+  table.sortable th[data-sort]:focus-visible { outline: 1px solid var(--accent); }
+  /* A nyíl helye akkor is megvan, ha nem az adott oszlop szerint rendezünk —
+     így a fejléc nem ugrál kattintáskor. */
+  table.sortable th[data-sort]::after {
+    content: "↕"; margin-left: .35rem; opacity: .3;
+  }
+  table.sortable th[aria-sort="ascending"]::after { content: "↑"; opacity: 1; }
+  table.sortable th[aria-sort="descending"]::after { content: "↓"; opacity: 1; }
 
   button.tiny {
     padding: .15rem .5rem; font-size: .72rem; border-radius: 4px; cursor: pointer;
@@ -303,7 +383,7 @@
   </nav>
 
   <div id="refresh-status"
-       class="status {{ 'busy' if refresh_state.running }}"
+       class="status {{ 'busy' if refresh_state.running else 'done' }}"
        {{ '' if refresh_state.running or refresh_state.log else 'hidden' }}>
     <div class="head">
       {% if refresh_state.running %}<span class="spin"></span>{% endif %}
@@ -319,6 +399,8 @@
     <pre id="refresh-log">{{ refresh_state.log|join('\n') }}</pre>
   </div>
 
+  {% include "_svgdefs.html" %}
+
   {% block content %}{% endblock %}
 
   <footer>
@@ -330,13 +412,26 @@
 
 <script>
 // Amíg fut a frissítés, kérdezzük az állapotát; a végén újratöltjük az
-// oldalt, hogy a friss adatok megjelenjenek.
+// oldalt, hogy a friss adatok megjelenjenek. Az újratöltés után az
+// állapotjelző zölden mutatja, hogy kész, majd 3 mp múlva eltűnik.
 (function () {
   var box = document.getElementById('refresh-status');
   var headline = document.getElementById('refresh-headline');
   var log = document.getElementById('refresh-log');
   var running = {{ 'true' if refresh_state.running else 'false' }};
-  if (!running) return;
+
+  // Kész állapot: zöld doboz, 3 mp után elhalványul és eltűnik.
+  function hideSoon() {
+    setTimeout(function () {
+      box.classList.add('fade');
+      setTimeout(function () { box.hidden = true; }, 400);
+    }, 3000);
+  }
+
+  if (!running) {
+    if (!box.hidden) hideSoon();
+    return;
+  }
 
   function tick() {
     fetch('/refresh/status').then(function (r) { return r.json(); })
@@ -350,12 +445,167 @@
         } else {
           headline.textContent = 'Frissítés kész — újratöltés…';
           box.classList.remove('busy');
+          box.classList.add('done');
           setTimeout(function () { location.reload(); }, 600);
         }
       })
       .catch(function () { setTimeout(tick, 3000); });
   }
   setTimeout(tick, 800);
+})();
+
+// A "hol jár most" jelölők mozgatása. A pálya számítása a kiszolgálón,
+// hálózat nélkül történik, ezért olcsó félpercenként újrakérdezni.
+(function () {
+  var blocks = Array.prototype.slice.call(
+    document.querySelectorAll('.track[data-norad]'));
+  if (!blocks.length) return;
+
+  var norads = [];
+  blocks.forEach(function (b) {
+    var id = b.getAttribute('data-norad');
+    if (norads.indexOf(id) < 0) norads.push(id);
+  });
+
+  function place(el, x, y) {
+    if (!el) return;
+    el.setAttribute('cx', x);
+    el.setAttribute('cy', y);
+    el.removeAttribute('hidden');
+  }
+
+  function draw(block, p) {
+    var map = block.querySelector('.sat-map');
+    var where = block.querySelector('.live-where');
+    if (!p || p.error) {
+      if (map) map.setAttribute('hidden', '');
+      if (where) where.textContent = 'nincs pályaelem';
+      return;
+    }
+    place(map, p.x, p.y);
+
+    var group = block.querySelector('.path');
+    if (group) {
+      group.textContent = '';
+      (p.track || []).forEach(function (segment) {
+        var line = document.createElementNS('http://www.w3.org/2000/svg',
+                                            'polyline');
+        line.setAttribute('points', segment.map(function (xy) {
+          return xy[0] + ',' + xy[1];
+        }).join(' '));
+        group.appendChild(line);
+      });
+    }
+    if (where) {
+      where.textContent = p.lat.toFixed(1) + '°, ' + p.lon.toFixed(1) + '° · ' +
+        p.alt_km + ' km · ' + (p.el >= 0
+          ? Math.round(p.az) + '° felől ' + Math.round(p.el) + '° magasan'
+          : 'a horizont alatt');
+    }
+  }
+
+  function tick() {
+    fetch('/api/positions?norad=' + norads.join(','))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        blocks.forEach(function (block) {
+          draw(block, data.positions[block.getAttribute('data-norad')]);
+        });
+        setTimeout(tick, 30000);
+      })
+      .catch(function () { setTimeout(tick, 60000); });
+  }
+  // Az első kérés azonnal indul: a pályanyom csak innen kerül a térképre.
+  setTimeout(tick, 200);
+})();
+
+// Az égbolt-korong jelölője. Csak a most zajló átvonulásnál látszik, és az
+// eltelt idő szerint halad végig a kirajzolt íven — így sosem ugrik le a
+// vonalról. A tetőzés az ív felénél van, ezért a két szakaszt külön mérjük.
+(function () {
+  var discs = Array.prototype.slice.call(
+    document.querySelectorAll('.sky[data-arc]'));
+  if (!discs.length) return;
+
+  function progress(start, top, end, now) {
+    if (!(end > start)) return null;
+    if (now < start || now > end) return null;
+    if (!top || !(start < top && top < end)) {
+      return (now - start) / (end - start);
+    }
+    return now <= top ? 0.5 * (now - start) / (top - start)
+                      : 0.5 + 0.5 * (now - top) / (end - top);
+  }
+
+  function tick() {
+    var now = Date.now() / 1000;
+    discs.forEach(function (svg) {
+      var dot = svg.querySelector('.sat-sky');
+      if (!dot) return;
+      var a = svg.getAttribute('data-arc').trim().split(/\s+/).map(Number);
+      var t = progress(+svg.getAttribute('data-start'),
+                       +svg.getAttribute('data-max'),
+                       +svg.getAttribute('data-end'), now);
+      if (t === null) { dot.setAttribute('hidden', ''); return; }
+      var u = 1 - t;
+      dot.setAttribute('cx', u * u * a[0] + 2 * u * t * a[2] + t * t * a[4]);
+      dot.setAttribute('cy', u * u * a[1] + 2 * u * t * a[3] + t * t * a[5]);
+      dot.removeAttribute('hidden');
+    });
+    setTimeout(tick, 5000);
+  }
+  tick();
+})();
+
+// Táblázatok rendezése a fejlécre kattintva. Ugyanarra az oszlopra újra
+// kattintva megfordul a sorrend; az üres cellák mindig a lista végére
+// kerülnek, hogy a hiányzó adat ne keveredjen az érdemi sorok közé.
+(function () {
+  Array.prototype.forEach.call(
+    document.querySelectorAll('table.sortable'), function (table) {
+      var body = table.tBodies[0];
+      if (!body) return;
+      var heads = Array.prototype.slice.call(
+        table.querySelectorAll('th[data-sort]'));
+
+      function keyOf(row, index) {
+        var cell = row.cells[index];
+        if (!cell) return '';
+        var raw = cell.hasAttribute('data-key')
+          ? cell.getAttribute('data-key') : cell.textContent;
+        return raw.trim();
+      }
+
+      function sort(th) {
+        var index = th.cellIndex;
+        var numeric = th.getAttribute('data-sort') === 'num';
+        var descending = th.getAttribute('aria-sort') === 'ascending';
+        var rows = Array.prototype.slice.call(body.rows);
+
+        rows.sort(function (a, b) {
+          var x = keyOf(a, index), y = keyOf(b, index);
+          if (!x || !y) return x ? -1 : (y ? 1 : 0);
+          var diff = numeric ? parseFloat(x) - parseFloat(y)
+                             : x.localeCompare(y, 'hu', {numeric: true});
+          return descending ? -diff : diff;
+        });
+        rows.forEach(function (row) { body.appendChild(row); });
+
+        heads.forEach(function (other) { other.removeAttribute('aria-sort'); });
+        th.setAttribute('aria-sort', descending ? 'descending' : 'ascending');
+      }
+
+      heads.forEach(function (th) {
+        th.tabIndex = 0;
+        th.addEventListener('click', function () { sort(th); });
+        th.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            sort(th);
+          }
+        });
+      });
+    });
 })();
 </script>
 </body>

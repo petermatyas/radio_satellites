@@ -2,24 +2,51 @@
 {% set page = 'passes' %}
 {% block title %}{{ sat_name }} — észlelések{% endblock %}
 
+{# Az aktivitás- és az időablak-szűrő egymás mellett él: bármelyiket
+   átállítva a másik választás megmarad. #}
+{% macro link(hours=none, activity=false) %}
+  {%- set hours = window_hours if hours is none else hours -%}
+  {%- set activity = selected if activity is sameas false else activity -%}
+  {{- '/reports/%d?hours=%d'|format(norad_id, hours) -}}
+  {{- '&activity=%s'|format(activity) if activity else '' -}}
+{% endmacro %}
+
 {% block content %}
   <header>
     <h1>{{ sat_name }} — ki hallotta</h1>
     <div class="sub">
-      {{ items|length }} bejelentés
+      {{ items|length }} bejelentés az elmúlt {{ window_hours }} órából
       {%- if selected %} a(z) {{ selected }} aktivitásról{% endif %} &middot;
       AMSAT Live OSCAR Status &middot;
       <a href="/?norad_id={{ norad_id }}">átvonulások</a>
+      <br>
+      A jelentés sorára kattintva a bejelentés forrása nyílik meg.
+      {%- if older and wider %} &middot;
+        <a href="{{ link(hours=wider) }}">{{ older }} régebbi bejelentés</a>
+        van az adatbázisban.
+      {%- elif older %} &middot; {{ older }} régebbi bejelentés az adatbázisban
+        nem látszik.
+      {%- endif %}
     </div>
   </header>
+
+  <nav class="filters">
+    {% for hours, label in windows %}
+      <a class="chip {{ 'active' if window_hours == hours }}"
+         href="{{ link(hours=hours) }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
 
   {% if activities|length > 1 or selected %}
     <nav class="filters">
       <a class="chip {{ 'active' if not selected }}"
-         href="/reports/{{ norad_id }}">Mind</a>
+         href="{{ link(activity=none) }}">Mind</a>
+      {% if selected_missing %}
+        <a class="chip active" href="{{ link() }}">{{ selected }} (0)</a>
+      {% endif %}
       {% for a in activities %}
         <a class="chip {{ 'active' if selected == a['activity'] }}"
-           href="/reports/{{ norad_id }}?activity={{ a['activity'] }}">
+           href="{{ link(activity=a['activity']) }}">
           {{ a['activity'] }} ({{ a['reports'] }})
         </a>
       {% endfor %}
@@ -40,27 +67,25 @@
             <td class="mono call">{{ i.callsign }}</td>
             <td class="mono dim">{{ i.grid or '—' }}</td>
             <td class="dim">{{ i.activity }}</td>
-            <td><span class="badge {{ i.kind }}">{{ i.label }}</span></td>
+            <td>
+              <a class="badge {{ i.kind }}" href="{{ i.source_url }}"
+                 target="_blank" rel="noopener"
+                 title="A bejelentés forrása az AMSAT status API-ban">{{ i.label }}</a>
+            </td>
           </tr>
         {% endfor %}
       </table>
     </div>
-
-    <div class="src">
-      Az adatbázisban az utolsó lekérdezés időablaka szerepel
-      (alapértelmezés: {{ window_hours }} óra) &middot;
-      forrás:
-      <a href="https://www.amsat.org/status/index.php" target="_blank"
-         rel="noopener">AMSAT status</a>
-      <span class="sep">·</span>
-      <a href="{{ amsat_url }}" target="_blank" rel="noopener">AMSAT</a>
-      <span class="sep">·</span>
-      <a href="{{ satnogs_url }}" target="_blank" rel="noopener">SatNOGS</a>
-    </div>
   {% else %}
     <div class="empty">
-      Nincs bejelentés erre a műholdra az adatbázisban.
-      <br><code>python amsat.py --hours 720</code>
+      Nincs bejelentés erre a műholdra az elmúlt {{ window_hours }} órából
+      {%- if selected %} a(z) {{ selected }} aktivitásról{% endif %}.
+      {% if older and wider %}
+        <br>{{ older }} régebbi bejelentés van az adatbázisban &mdash;
+        <a href="{{ link(hours=wider) }}">nézd meg tágabb időablakkal</a>.
+      {% elif not older %}
+        <br><code>python amsat.py</code>
+      {% endif %}
     </div>
   {% endif %}
 {% endblock %}

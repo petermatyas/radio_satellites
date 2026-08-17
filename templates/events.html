@@ -6,11 +6,21 @@
   <header>
     <h1>Várható rádiós események</h1>
     <div class="sub">
-      {{ items|length }} esemény &middot;
+      {{ items|length }}{% if kind %} / {{ total }}{% endif %} esemény &middot;
       ARISS SSTV kampányok és hams.at aktivációk &middot;
       frissítve {{ now.strftime('%Y-%m-%d %H:%M') }}
     </div>
   </header>
+
+  {% if total %}
+  <nav class="filters">
+    <a class="chip {{ 'active' if not kind }}" href="/events">Mind ({{ total }})</a>
+    <a class="chip {{ 'active' if kind == 'rove' }}" href="/events?kind=rove">
+      Egyéni aktiváció ({{ counts.rove }})</a>
+    <a class="chip {{ 'active' if kind == 'sstv' }}" href="/events?kind=sstv">
+      ARISS SSTV ({{ counts.sstv }})</a>
+  </nav>
+  {% endif %}
 
   {% if items %}
     {% for i in items %}
@@ -50,8 +60,13 @@
     {% endfor %}
   {% else %}
     <div class="empty">
-      Nincs várható esemény az adatbázisban.
-      <br><code>python collect.py</code>
+      {% if kind %}
+        Nincs ilyen típusú várható esemény.
+        <br><a href="/events">összes esemény</a>
+      {% else %}
+        Nincs várható esemény az adatbázisban.
+        <br><code>python collect.py</code>
+      {% endif %}
     </div>
   {% endif %}
 {% endblock %}

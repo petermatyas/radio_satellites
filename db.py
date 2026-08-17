@@ -182,6 +182,18 @@ CREATE TABLE IF NOT EXISTS tracked_satellites (
     norad_id INTEGER PRIMARY KEY,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Pályaelemek a "hol jár most" grafikához. Műholdanként egy sor: mindig a
+-- legfrissebb elemhalmaz érdekes, a régi epocha csak pontatlanná tenné.
+CREATE TABLE IF NOT EXISTS tle (
+    norad_id   INTEGER PRIMARY KEY,
+    name       TEXT,
+    line1      TEXT NOT NULL,
+    line2      TEXT NOT NULL,
+    epoch      TEXT,
+    source_url TEXT,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 # A gyári beállítások; a settings tábla ezeket írja felül.
@@ -806,16 +818,32 @@ def get_reports(conn, norad_id, since_iso=None, activity=None, limit=500):
     return conn.execute(sql, params).fetchall()
 
 
-def get_report_activities(conn, norad_id):
-    """Milyen aktivitásokról van egyáltalán jelentésünk az adott műholdhoz."""
+def get_report_activities(conn, norad_id, since_iso=None):
+    """Milyen aktivitásokról van egyáltalán jelentésünk az adott műholdhoz.
+
+    A since_iso ugyanazt az időablakot vágja le, mint a get_reports — így a
+    szűrő-csempéken látszó darabszám a listával egyezik.
+    """
+    sql = ("SELECT c.activity, c.display_name, COUNT(*) AS reports, "
+           "       MAX(r.reported_time) AS latest "
+           "FROM amsat_reports r JOIN amsat_catalog c ON c.amsat_name = r.amsat_name "
+           "WHERE c.norad_id = ?")
+    params = [norad_id]
+    if since_iso:
+        sql += " AND r.reported_time >= ?"
+        params.append(since_iso)
+    sql += " GROUP BY c.activity, c.display_name ORDER BY latest DESC"
+    return conn.execute(sql, params).fetchall()
+
+
+def count_reports_before(conn, norad_id, before_iso):
+    """Hány bejelentésünk van az időablakon kívülről — csak jelzésnek."""
     return conn.execute(
-        "SELECT c.activity, c.display_name, COUNT(*) AS reports, "
-        "       MAX(r.reported_time) AS latest "
-        "FROM amsat_reports r JOIN amsat_catalog c ON c.amsat_name = r.amsat_name "
-        "WHERE c.norad_id = ? GROUP BY c.activity, c.display_name "
-        "ORDER BY latest DESC",
-        (norad_id,),
-    ).fetchall()
+        "SELECT COUNT(*) FROM amsat_reports r "
+        "JOIN amsat_catalog c ON c.amsat_name = r.amsat_name "
+        "WHERE c.norad_id = ? AND r.reported_time < ?",
+        (norad_id, before_iso),
+    ).fetchone()[0]
 
 
 def get_activity_map(conn, since_iso):
@@ -924,3 +952,58 @@ def get_passes(conn, norad_id=None, limit=None, since=None, observer=None):
         sql += " LIMIT ?"
         params.append(limit)
     return conn.execute(sql, params).fetchall()
+
+
+def save_tle(conn, entries):
+    """Pályaelemek mentése műholdanként; a meglévő sort felülírja.
+
+    Egy TLE néhány nap alatt elavul, ezért nem gyűjtjük a történetet: mindig
+    a legutóbb letöltött elemhalmaz marad.
+    """
+    new = updated = 0
+    for e in entries:
+        exists = conn.execute("SELECT 1 FROM tle WHERE norad_id = ?",
+                              (e["norad_id"],)).fetchone()
+        conn.execute(
+            "INSERT INTO tle (norad_id, name, line1, line2, epoch, source_url,"
+            "                 fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, datetime('now')) "
+            "ON CONFLICT(norad_id) DO UPDATE SET "
+            "  name = excluded.name, line1 = excluded.line1, "
+            "  line2 = excluded.line2, epoch = excluded.epoch, "
+            "  source_url = excluded.source_url, "
+            "  fetched_at = excluded.fetched_at",
+            (e["norad_id"], e.get("name"), e["line1"], e["line2"],
+             e.get("epoch"), e.get("source_url")),
+        )
+        if exists:
+            updated += 1
+        else:
+            new += 1
+    conn.commit()
+    return new, updated
+
+
+def get_tle_map(conn, norad_ids=None):
+    """NORAD ID -> pályaelem sor."""
+    sql = "SELECT * FROM tle"
+    params = []
+    if norad_ids is not None:
+        ids = list(norad_ids)
+        if not ids:
+            return {}
+        sql += f" WHERE norad_id IN ({','.join('?' * len(ids))})"
+        params = ids
+    return {r["norad_id"]: r for r in conn.execute(sql, params)}
+
+
+def tle_ages(conn, norad_ids):
+    """NORAD ID -> hány órája töltöttük le a tárolt pályaelemet."""
+    ids = list(norad_ids)
+    if not ids:
+        return {}
+    rows = conn.execute(
+        "SELECT norad_id, (julianday('now') - julianday(fetched_at)) * 24 "
+        f"AS hours FROM tle WHERE norad_id IN ({','.join('?' * len(ids))})",
+        ids)
+    return {r["norad_id"]: r["hours"] for r in rows}

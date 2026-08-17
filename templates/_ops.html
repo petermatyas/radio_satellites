@@ -1,4 +1,7 @@
-{# Az amsat.org üzemi frekvenciatábláinak sorai egy műholdhoz. #}
+{# Az amsat.org üzemi frekvenciatábláinak sorai egy műholdhoz.
+
+   Ha egy AMSAT-észlelés ehhez a sorhoz köthető (FM–FM, SSTV–Image), akkor a
+   "hallották" jelzés itt jelenik meg, nem külön címkeként. #}
 {% macro ops(frequencies, show_comment=false) %}
   {% if frequencies %}
     <div class="ops">
@@ -18,6 +21,16 @@
           {% endif %}
           {% if f.mode %}<span class="mode">{{ f.mode }}</span>{% endif %}
           {% if f.via %}<span class="lbl">via {{ f.via }}</span>{% endif %}
+          {% for a in f.heard %}
+            {% if a.url %}
+              <a class="heard" href="{{ a.url }}" title="Ki és mikor hallotta">
+                {{- a.activity }} hallották
+                {{ a.age_hours|humanize_age }} ({{ a.reports }})</a>
+            {% else %}
+              <span class="heard">{{ a.activity }} hallották
+                {{ a.age_hours|humanize_age }} ({{ a.reports }})</span>
+            {% endif %}
+          {% endfor %}
           {% if f.detail_url %}
             <a class="lbl" href="{{ f.detail_url }}" target="_blank"
                rel="noopener" style="margin-left:auto">{{ f.detail_host }} ↗</a>

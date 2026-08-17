@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ops.html" import ops %}
+{% from "_track.html" import track %}
 {% set page = 'passes' %}
 {% block title %}Következő átvonulások{% endblock %}
 
@@ -42,7 +43,9 @@
           </div>
           <div>
             <div class="name">
-              {{ p.sat_name }}<span class="norad">NORAD {{ p.norad_id }}</span>
+              <a href="{{ p.info_url }}" target="_blank" rel="noopener"
+                 title="{{ p.sat_name }} a(z) {{ p.info_host }} oldalon">{{ p.sat_name }}</a>
+              <span class="norad">NORAD {{ p.norad_id }}</span>
             </div>
             <div class="meta">
               max <span class="el">{{ p.max_el }}°</span> {{ p.max_compass }}
@@ -51,6 +54,8 @@
               <span class="sep">|</span>
               {{ p.duration_min }} perc
             </div>
+
+            {{ track(p, positions.get(p.norad_id), observer_xy) }}
 
             {% for a in p.activations %}
               <a class="tag rove" href="{{ a.url }}" target="_blank">
@@ -74,8 +79,7 @@
             {% endif %}
 
             {% for a in p.activity %}
-              <a class="tag heard"
-                 href="/reports/{{ p.norad_id }}?activity={{ a.activity }}"
+              <a class="tag heard" href="{{ a.url }}"
                  title="Ki és mikor hallotta">
                 {{ a.activity }}
                 <span class="what">hallották {{ a.age_hours|humanize_age }}
@@ -99,6 +103,8 @@
 
             <div class="src">
               forrás:
+              <a href="{{ p.n2yo_url }}" target="_blank" rel="noopener">N2YO</a>
+              <span class="sep">·</span>
               <a href="{{ p.satnogs_url }}" target="_blank" rel="noopener">SatNOGS</a>
               <span class="sep">·</span>
               <a href="{{ p.amsat_url }}" target="_blank" rel="noopener">AMSAT</a>

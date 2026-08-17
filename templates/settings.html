@@ -92,15 +92,27 @@
   <div class="card">
     <h2 class="sec">Jelenlegi lista</h2>
     {% if tracked %}
-      <table class="tracked">
-        <tr>
-          <th>NORAD</th><th>Név</th><th>Mentett átvonulás</th><th></th>
-        </tr>
+      {# A fejlécre kattintva rendezhető. Szándékosan a böngészőben, nem
+         újratöltéssel: a lap tetején lévő űrlapba beírt, még nem mentett
+         értékek így nem vesznek el. #}
+      <table class="tracked sortable">
+        <thead>
+          <tr>
+            <th data-sort="num">NORAD</th>
+            <th data-sort="text">Név</th>
+            <th data-sort="num">Mentett átvonulás</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
         {% for norad, name in tracked %}
           <tr>
             <td>{{ norad }}</td>
-            <td>{{ name or '— (a következő letöltésnél derül ki)' }}</td>
-            <td>
+            {# A név nélküli sorok rendezéskor mindig a végére kerülnek. #}
+            <td data-key="{{ name or '' }}">
+              {{- name or '— (a következő letöltésnél derül ki)' -}}
+            </td>
+            <td data-key="{{ counts[norad] }}">
               {% if counts[norad] %}
                 <a href="/?norad_id={{ norad }}">{{ counts[norad] }}</a>
               {% else %}0{% endif %}
@@ -115,6 +127,7 @@
             </td>
           </tr>
         {% endfor %}
+        </tbody>
       </table>
     {% else %}
       <div class="hint">

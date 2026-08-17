@@ -1,0 +1,61 @@
+{# Az átvonulás-kártyák kis grafikái.
+
+   Bal oldalt az égbolt-korong: a kör széle a horizont, a közepe a zenit, az
+   észak felfelé van. Az ív az átvonulás útja a kelés és a nyugvás között.
+
+   Jobb oldalt a világtérkép a műhold alatti ponttal — ez mutatja, hogy éppen
+   hol jár. A jelölőket és a pályanyomot a base.html szkriptje rajzolja, mert
+   ugyanaz a néhány műhold sok kártyán szerepel: a nyomvonalat kártyánként
+   kiírva az oldal többszörösére hízna. A pillanatnyi hely és a szöveges
+   adatok szkript nélkül is látszanak, az oldalletöltés pillanatára. #}
+
+{% macro track(p, pos, observer_xy) %}
+  <div class="track" data-norad="{{ p.norad_id }}">
+
+    {% if p.sky %}
+      <svg class="sky" viewBox="-1.55 -1.5 3.1 3"
+           data-start="{{ p.start_utc }}" data-max="{{ p.max_utc or '' }}"
+           data-end="{{ p.end_utc }}"
+           data-arc="{{ (p.sky.start + p.sky.control + p.sky.end)|join(' ') }}">
+        <title>Az átvonulás útja az égbolton</title>
+        <use href="#skygrid"/>
+        <path class="arc" d="{{ p.sky.path }}"/>
+        <circle class="rise" cx="{{ p.sky.start[0] }}" cy="{{ p.sky.start[1] }}" r="0.075"/>
+        <circle class="set" cx="{{ p.sky.end[0] }}" cy="{{ p.sky.end[1] }}" r="0.075"/>
+        {# A jelölő csak a most zajló átvonulásnál látszik, és mindig az
+           íven marad: a helyét az eltelt idő adja, nem a nyers irányszög. #}
+        <circle class="sat-sky" r="0.11"
+                {% if p.sky_now %}cx="{{ p.sky_now[0] }}" cy="{{ p.sky_now[1] }}"
+                {% else %}hidden{% endif %}/>
+      </svg>
+    {% endif %}
+
+    <svg class="map" viewBox="0 0 360 180" preserveAspectRatio="none">
+      <title>A műhold alatti pont és a pályanyom</title>
+      <rect class="sea" x="0" y="0" width="360" height="180"/>
+      <use class="land" href="#worldland"/>
+      <path class="grid" d="M0 90H360M180 0V180"/>
+      <g class="path"></g>
+      <path class="home" d="M{{ observer_xy[0] - 4 }} {{ observer_xy[1] - 4 }} l8 8
+                            M{{ observer_xy[0] + 4 }} {{ observer_xy[1] - 4 }} l-8 8"/>
+      <circle class="sat-map" r="5"
+              {% if pos and not pos.error %}cx="{{ pos.x }}" cy="{{ pos.y }}"
+              {% else %}hidden{% endif %}/>
+    </svg>
+
+    <div class="where">
+      {%- if pos and not pos.error -%}
+        <span class="live-where">{{ pos.lat|round(1) }}°, {{ pos.lon|round(1) }}°
+          &middot; {{ pos.alt_km }} km &middot;
+          {%- if pos.el >= 0 %} {{ pos.az|round|int }}° felől
+            {{ pos.el|round|int }}° magasan
+          {%- else %} a horizont alatt{% endif %}</span>
+        {%- if pos.stale %}
+          <span class="warn">pályaelem {{ pos.epoch_age_days }} napos</span>
+        {% endif -%}
+      {%- else -%}
+        <span class="live-where">nincs pályaelem</span>
+      {%- endif -%}
+    </div>
+  </div>
+{% endmacro %}

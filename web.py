@@ -2,15 +2,17 @@
 rádiós információk (frekvencia, üzemmód, bejelentett aktivitás)."""
 
 import argparse
+import math
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 import amsat_freq
 import db
+import orbit
 import refresh as refresh_module
 import sstv
 
@@ -21,13 +23,78 @@ refresher = refresh_module.Refresher(app.config["DB_PATH"])
 # Ennyi ideig tekintünk egy AMSAT észlelést "friss"-nek.
 ACTIVITY_WINDOW_HOURS = 72
 
+# A "ki hallotta" lista alapból ennyi órára visszamenőleg mutat bejelentést.
+REPORTS_WINDOW_HOURS = 24
+
+# Választható időablakok a bejelentések lapján. A felső határ az AMSAT API
+# maximuma (30 nap), ennél régebbit úgysem tudunk begyűjteni.
+REPORTS_WINDOWS = [
+    (24, "24 óra"),
+    (48, "2 nap"),
+    (72, "3 nap"),
+    (168, "1 hét"),
+    (720, "30 nap"),
+]
+
+
+def reports_url(norad_id, activity=None, age_hours=None):
+    """Hivatkozás a bejelentésekre, elég tág időablakkal.
+
+    Az átvonulás-listán 72 órán belüli észlelés is látszik, a lap viszont
+    alapból csak {REPORTS_WINDOW_HOURS} órát mutat — ha a link nem vinné
+    magával a szükséges ablakot, üres listára érkeznénk.
+    """
+    params = {}
+    if activity:
+        params["activity"] = activity
+    if age_hours is not None and age_hours >= REPORTS_WINDOW_HOURS:
+        params["hours"] = next(
+            (hours for hours, _ in REPORTS_WINDOWS if hours > age_hours),
+            REPORTS_WINDOWS[-1][0])
+    query = f"?{urlencode(params)}" if params else ""
+    return f"/reports/{norad_id}{query}"
+
 AMSAT_STATUS_URL = "https://www.amsat.org/status/index.php"
+AMSAT_REPORTS_API = "https://www.amsat.org/status/api/v1/reports.php"
 SATNOGS_SAT_URL = "https://db.satnogs.org/satellite/{}/"
+N2YO_SAT_URL = "https://www.n2yo.com/satellite/?s={}"
 
 
 def satnogs_url(sat_id, norad_id):
     """A műhold SatNOGS DB oldala; sat_id hiányában a NORAD ID is működik."""
     return SATNOGS_SAT_URL.format(sat_id or norad_id)
+
+
+def n2yo_url(norad_id):
+    """A műhold N2YO-oldala: élő követés, pályaadatok, TLE.
+
+    Az átvonulásokat is innen kérjük le, de a felületen eddig nem szerepelt
+    hivatkozás rá — pedig a keringési idő, a hajlásszög és a láthatósági kör
+    csak ott látszik.
+    """
+    return N2YO_SAT_URL.format(norad_id)
+
+
+def satellite_info_url(website, norad_id):
+    """A műholdról szóló legbeszédesebb külső oldal.
+
+    A saját honlap (misszió- vagy egyetemi oldal) mondja a legtöbbet arról,
+    ami nálunk nem látszik; ha nincs, az N2YO pályaadatai jönnek. Visszaadja
+    a címet és a domaint, hogy a hivatkozás ne legyen meglepetés.
+    """
+    url = website or n2yo_url(norad_id)
+    return url, host_of(url)
+
+
+def amsat_report_url(amsat_name, hours=None):
+    """A bejelentést tartalmazó konkrét AMSAT lekérdezés.
+
+    Az amsat.org-on nincs bejelentésenkénti oldal, és a státuszrács sem
+    szűrhető linkkel — a legpontosabb, amire mutatni tudunk, az az API-hívás,
+    amiből maga a sor származik: reports.php?name=ISS_[FM].
+    """
+    query = {"name": amsat_name, "hours": hours or ACTIVITY_WINDOW_HOURS}
+    return f"{AMSAT_REPORTS_API}?{urlencode(query)}"
 
 
 def host_of(url):
@@ -173,15 +240,62 @@ def format_activity(rows):
     out = []
     for row in rows:
         latest = datetime.strptime(row["latest"], "%Y-%m-%dT%H:%M:%SZ")
+        activity = row["activity"] or row["display_name"]
+        age_hours = int((datetime.now(timezone.utc)
+                         - latest.replace(tzinfo=timezone.utc))
+                        .total_seconds() // 3600)
         out.append({
-            "activity": row["activity"] or row["display_name"],
+            "activity": activity,
             "latest": latest,
-            "age_hours": int((datetime.now(timezone.utc)
-                              - latest.replace(tzinfo=timezone.utc))
-                             .total_seconds() // 3600),
+            "age_hours": age_hours,
             "reports": row["reports"],
+            "url": reports_url(row["norad_id"], activity, age_hours),
         })
     return out
+
+
+# Az AMSAT észlelés az aktivitást nevezi meg (FM, SSTV, U/v), az amsat.org
+# üzemi táblája viszont a szolgáltatás fajtáját (FM, Image, Linear) — ahol a
+# kettő ugyanarról szól, ott az észlelést a frekvenciasorhoz kötjük, hogy ne
+# kelljen a felhasználónak fejben összepárosítania.
+#
+# Csak az egyértelmű párokat soroljuk fel: a telemetria, a DATV vagy a
+# QO-100 szélessávú átjátszója nem feleltethető meg egyetlen sornak sem,
+# ezek külön címkeként maradnak.
+ACTIVITY_CATEGORIES = {
+    "FM": "FM",
+    "Crew": "FM",          # az ISS-en a legénység hangforgalma az FM-en megy
+    "SSTV": "Image",
+    "SSDV": "Image",
+    "VHF_Digi": "Digipeater",
+    "UHF_Digi": "Digipeater",
+    "V/u_Digi": "Digipeater",
+    # A lineáris átjátszók jelölése az irányokat adja meg (uplink/downlink):
+    # U/v = 70 cm fel, 2 m le, és így tovább.
+    "U/v": "Linear",
+    "V/u": "Linear",
+    "V/a": "Linear",
+    "C/x": "Linear",
+}
+
+
+def attach_activity(frequencies, activities):
+    """Az észleléseket a hozzájuk tartozó frekvenciasorhoz fűzi.
+
+    Egy műholdhoz kategóriánként legfeljebb egy üzemi sor tartozik, ezért a
+    hozzárendelés egyértelmű. Visszaadja azokat az észleléseket, amiknek nem
+    találtunk sort — ezek a kártyán önálló címkeként maradnak.
+    """
+    by_category = {(f["category"] or "").lower(): f for f in frequencies}
+    unmatched = []
+    for item in activities:
+        category = ACTIVITY_CATEGORIES.get(item["activity"])
+        row = by_category.get((category or "").lower())
+        if row is None:
+            unmatched.append(item)
+        else:
+            row.setdefault("heard", []).append(item)
+    return unmatched
 
 
 def overlapping(intervals, start, end, norad_id, norad_key="norad_id"):
@@ -191,6 +305,135 @@ def overlapping(intervals, start, end, norad_id, norad_key="norad_id"):
             and row["start_utc"] <= end and row["end_utc"] >= start]
 
 
+# A pályaelem ennyi nap után már érezhetően pontatlan; a felületen jelezzük.
+TLE_STALE_DAYS = 7
+
+
+def map_xy(lat, lon):
+    """Szélesség/hosszúság -> a 360x180-as térkép viewBox koordinátái."""
+    return round(lon + 180, 2), round(90 - lat, 2)
+
+
+def track_segments(points):
+    """Pályanyom térkép-koordinátákban, a dátumvonalnál elvágva.
+
+    A nyom a ±180. hosszúsági foknál átfordul; ha egyben rajzolnánk, egy
+    vízszintes vonal szaladna át a térképen.
+    """
+    segments, current, previous = [], [], None
+    for lat, lon in points:
+        if previous is not None and abs(lon - previous) > 180:
+            segments.append(current)
+            current = []
+        current.append(map_xy(lat, lon))
+        previous = lon
+    if current:
+        segments.append(current)
+    return [s for s in segments if len(s) > 1]
+
+
+def live_positions(conn, norad_ids, observer, track=True):
+    """NORAD ID -> hol jár most a műhold, és merről látszik.
+
+    A pályaelem hiánya vagy elavulása nem hiba: a felület ilyenkor csak a
+    térképet rajzolja ki, jelölő nélkül.
+    """
+    positions = {}
+    for norad, row in db.get_tle_map(conn, norad_ids).items():
+        try:
+            now = orbit.position(row)
+            look = orbit.look_angles(row, observer)
+            points = orbit.ground_track(row) if track else []
+        except (orbit.OrbitError, ValueError) as exc:
+            positions[norad] = {"error": str(exc)}
+            continue
+        x, y = map_xy(now["lat"], now["lon"])
+        age = orbit.epoch_age_days(row)
+        positions[norad] = {
+            "lat": round(now["lat"], 3),
+            "lon": round(now["lon"], 3),
+            "alt_km": round(now["alt_km"]),
+            "x": x,
+            "y": y,
+            "az": round(look["az"], 1),
+            "el": round(look["el"], 1),
+            "range_km": round(look["range_km"]),
+            "track": track_segments(points),
+            "epoch_age_days": round(age, 1),
+            "stale": age > TLE_STALE_DAYS,
+        }
+    return positions
+
+
+def sky_point(az, el):
+    """Azimut és magasság -> pont az égbolt-korongon.
+
+    A korong sugara 1: a közepe a zenit, a széle a horizont, az észak
+    felfelé, a kelet jobbra van — ahogy a hanyatt fekve tartott térképen.
+    """
+    if az is None or el is None:
+        return None
+    radius = max(0.0, min(1.0, (90.0 - el) / 90.0))
+    angle = math.radians(az)
+    return (round(radius * math.sin(angle), 3),
+            round(-radius * math.cos(angle), 3))
+
+
+def sky_arc(row):
+    """Az átvonulás íve az égbolt-korongon, SVG útvonalként.
+
+    Három pontunk van (kelés, tetőzés, nyugvás); a köztük lévő szakaszt egy
+    másodfokú Bézier-görbe közelíti, aminek a kontrollpontját úgy választjuk
+    meg, hogy a görbe átmenjen a tetőponton.
+    """
+    start = sky_point(row["start_az"], row["start_el"] or 0)
+    top = sky_point(row["max_az"], row["max_el"])
+    end = sky_point(row["end_az"], row["end_el"] or 0)
+    if not (start and top and end):
+        return None
+    control = (round(2 * top[0] - (start[0] + end[0]) / 2, 3),
+               round(2 * top[1] - (start[1] + end[1]) / 2, 3))
+    return {
+        "start": start,
+        "top": top,
+        "end": end,
+        "control": control,
+        "path": (f"M{start[0]:g} {start[1]:g} "
+                 f"Q{control[0]:g} {control[1]:g} "
+                 f"{end[0]:g} {end[1]:g}"),
+    }
+
+
+def arc_point(sky, t):
+    """Pont az égbolt-íven: t=0 a kelés, t=0.5 a tetőzés, t=1 a nyugvás.
+
+    A jelölő így pontosan a kirajzolt görbén marad — a pályaelemből számolt
+    valódi irány ettől hajszálnyit eltérne, és a pont leugrana a vonalról.
+    """
+    t = max(0.0, min(1.0, t))
+    u = 1 - t
+    s, c, e = sky["start"], sky["control"], sky["end"]
+    return (round(u * u * s[0] + 2 * u * t * c[0] + t * t * e[0], 3),
+            round(u * u * s[1] + 2 * u * t * c[1] + t * t * e[1], 3))
+
+
+def pass_progress(row, now):
+    """Hol tart az átvonulás 0 és 1 között, a tetőzésre pontosan 0,5-öt adva.
+
+    A tetőzés ritkán esik a kelés és a nyugvás felezőpontjára, az ív viszont
+    a felénél megy át a tetőponton — ezért a két szakaszt külön skálázzuk.
+    """
+    start, end = row["start_utc"], row["end_utc"]
+    top = row["max_utc"]
+    if not (start and end) or end <= start:
+        return None
+    if not top or not start < top < end:
+        return (now - start) / (end - start)
+    if now <= top:
+        return 0.5 * (now - start) / (top - start)
+    return 0.5 + 0.5 * (now - top) / (end - top)
+
+
 def format_pass(row, now, extras):
     start, end = row["start_utc"], row["end_utc"]
     return {
@@ -198,6 +441,10 @@ def format_pass(row, now, extras):
         "sat_name": row["sat_name"] or f"NORAD {row['norad_id']}",
         "start": datetime.fromtimestamp(start),
         "end": datetime.fromtimestamp(end),
+        # A jelölő mozgatásához a böngészőnek is kellenek a nyers időpontok.
+        "start_utc": start,
+        "max_utc": row["max_utc"],
+        "end_utc": end,
         "duration_min": round((end - start) / 60, 1),
         "max_el": row["max_el"],
         "start_compass": row["start_az_compass"],
@@ -264,14 +511,21 @@ def index():
         # Néhány műholdra sok átvonulás jut, ezért a kiegészítő adatokat
         # egyszer olvassuk be, és memóriában párosítjuk.
         norads = {r["norad_id"] for r in rows}
-        sat_ids = {r["norad_id"]: r["sat_id"] for r in
-                   conn.execute("SELECT norad_id, sat_id FROM satellites")}
+        catalog = {r["norad_id"]: r for r in conn.execute(
+            "SELECT norad_id, sat_id, website FROM satellites")}
         transmitters = db.get_transmitter_map(conn, norads)
         frequencies = db.get_frequency_map(conn, norads)
         websites = db.get_amsat_websites(conn)
         activity = db.get_activity_map(conn, since_iso)
         sstv_events = db.get_sstv_intervals(conn, now)
         activations = db.get_activations(conn, now)
+        # A "hol jár most" grafikához műholdanként egy pályaszámítás kell,
+        # nem átvonulásonként — a kártyák ugyanazt a jelölőt használják. A
+        # pályanyomot a böngésző kéri le külön, hogy ne kelljen minden
+        # kártyába beleírni ugyanazt a néhány száz pontot.
+        positions = live_positions(conn, norads,
+                                   (config["lat"], config["lon"],
+                                    config["alt"]), track=False)
     finally:
         conn.close()
 
@@ -283,16 +537,34 @@ def index():
         roves = overlapping(activations, start, end, sat)
         freqs = [format_frequency(f) for f in frequencies.get(sat, [])]
         amsat_main, amsat_extra = amsat_links(freqs, websites.get(sat))
+        sky = sky_arc(row)
+        entry = catalog.get(sat)
+        info_url, info_host = satellite_info_url(
+            entry["website"] if entry else None, sat)
         passes.append(format_pass(row, now, {
             "sstv": format_sstv(sstv[0]) if sstv else None,
             "activations": [format_activation(a) for a in roves],
             "transmitters": [format_transmitter(t)
                              for t in transmitters.get(sat, [])],
             "frequencies": freqs,
-            "activity": format_activity(activity.get(sat, [])),
-            "satnogs_url": satnogs_url(sat_ids.get(sat), sat),
+            # Ami frekvenciasorhoz köthető, az ott jelenik meg; a maradék
+            # marad önálló "hallották" címkének.
+            "activity": attach_activity(freqs,
+                                        format_activity(activity.get(sat, []))),
+            "satnogs_url": satnogs_url(entry["sat_id"] if entry else None, sat),
             "amsat_url": amsat_main,
             "amsat_extra": amsat_extra,
+            "n2yo_url": n2yo_url(sat),
+            # A műhold nevére kattintva a róla szóló külső oldal nyílik meg:
+            # küldetésleírás, pályaadatok — ami a listán nem fér el.
+            "info_url": info_url,
+            "info_host": info_host,
+            "sky": sky,
+            # Az égbolt-korongon csak akkor van jelölő, ha éppen ez az
+            # átvonulás zajlik — máskor a műhold nem ezen az íven jár.
+            "sky_now": (arc_point(sky, pass_progress(row, now))
+                        if sky and row["start_utc"] <= now <= row["end_utc"]
+                        else None),
         }))
 
     # Napokra bontva, hogy a lista olvasható maradjon.
@@ -312,8 +584,37 @@ def index():
         satellites=satellites,
         selected=norad_id,
         observer=observer,
+        positions=positions,
+        observer_xy=map_xy(observer[0], observer[1]),
         now=datetime.fromtimestamp(now),
     )
+
+
+@app.route("/api/positions")
+def api_positions():
+    """A követett műholdak pillanatnyi helye — a grafikák ebből frissülnek.
+
+    A számítás a tárolt pályaelemekből helyben történik, hálózat nélkül,
+    ezért néhány másodpercenként is olcsón kérdezhető.
+    """
+    wanted = [int(n) for n in (request.args.get("norad") or "").split(",")
+              if n.strip().isdigit()] or None
+
+    conn = db.connect(app.config["DB_PATH"])
+    try:
+        config = db.get_settings(conn)
+        observer = (config["lat"], config["lon"], config["alt"])
+        if wanted is None:
+            wanted = [norad for norad, _ in db.get_tracked(conn)]
+        positions = live_positions(conn, wanted, observer)
+    finally:
+        conn.close()
+
+    return jsonify({
+        "at": int(time.time()),
+        "observer": {"lat": observer[0], "lon": observer[1]},
+        "positions": {str(k): v for k, v in positions.items()},
+    })
 
 
 @app.route("/events")
@@ -323,8 +624,14 @@ def events():
     Az átvonulás-listán csak az látszik, ami időben átfedi a helyi
     átvonulásainkat — egy tengerentúli rover ablaka viszont ritkán fedi át,
     ezért az események önmagukban is megjelennek itt.
+
+    A ?kind=rove szűrő a hams.at-ról jövő egyéni aktivációkat hagyja meg,
+    a ?kind=sstv az ARISS kampányokat.
     """
     now = int(time.time())
+    kind = request.args.get("kind")
+    if kind not in ("sstv", "rove"):
+        kind = None
 
     conn = db.connect(app.config["DB_PATH"])
     try:
@@ -375,7 +682,14 @@ def events():
         })
 
     items.sort(key=lambda i: i["start"])
-    return render_template("events.html", items=items,
+    counts = {
+        "sstv": sum(1 for i in items if i["kind"] == "sstv"),
+        "rove": sum(1 for i in items if i["kind"] == "rove"),
+    }
+    if kind:
+        items = [i for i in items if i["kind"] == kind]
+    return render_template("events.html", items=items, kind=kind,
+                           counts=counts, total=sum(counts.values()),
                            now=datetime.fromtimestamp(now))
 
 
@@ -410,6 +724,7 @@ def satellites():
         freqs = [format_frequency(f)
                  for f in frequencies.get(row["norad_id"], [])]
         amsat_main, amsat_extra = amsat_links(freqs, websites.get(row["norad_id"]))
+        info_url, info_host = satellite_info_url(row["website"], row["norad_id"])
         sats.append({
             "norad_id": row["norad_id"],
             "name": row["name"],
@@ -417,8 +732,11 @@ def satellites():
             "countries": row["countries"],
             "launched": (row["launched"] or "")[:4],
             "website": row["website"],
+            "info_url": info_url,
+            "info_host": info_host,
             "tracked": row["norad_id"] in tracked,
             "satnogs_url": satnogs_url(row["sat_id"], row["norad_id"]),
+            "n2yo_url": n2yo_url(row["norad_id"]),
             "amsat_url": amsat_main,
             "amsat_extra": amsat_extra,
             "pass_count": row["pass_count"],
@@ -477,19 +795,31 @@ REPORT_LABELS = {
 
 @app.route("/reports/<int:norad_id>")
 def reports(norad_id):
-    """Ki és mikor hallotta — az AMSAT bejelentések tételesen."""
+    """Ki és mikor hallotta — az AMSAT bejelentések tételesen.
+
+    Alapból az elmúlt REPORTS_WINDOW_HOURS órát mutatjuk: ez a "most
+    hallható-e" kérdésre válaszol. A ?hours= paraméterrel az ablak
+    kiterjeszthető a régebbi bejelentésekre is.
+    """
     activity = request.args.get("activity") or None
+    hours = request.args.get("hours", type=int) or REPORTS_WINDOW_HOURS
+    # Csak a felkínált ablakokat engedjük: a lista így kiszámítható marad, és
+    # nem lehet egyetlen kéréssel az egész táblát végigolvastatni.
+    if hours not in {h for h, _ in REPORTS_WINDOWS}:
+        hours = REPORTS_WINDOW_HOURS
+    since_iso = ((datetime.now(timezone.utc) - timedelta(hours=hours))
+                 .strftime("%Y-%m-%dT%H:%M:%SZ"))
 
     conn = db.connect(app.config["DB_PATH"])
     try:
-        rows = db.get_reports(conn, norad_id, activity=activity)
-        activities = db.get_report_activities(conn, norad_id)
+        rows = db.get_reports(conn, norad_id, since_iso=since_iso,
+                              activity=activity)
+        activities = db.get_report_activities(conn, norad_id,
+                                              since_iso=since_iso)
+        older = db.count_reports_before(conn, norad_id, since_iso)
         sat = conn.execute(
             "SELECT norad_id, name, sat_id FROM satellites WHERE norad_id = ?",
             (norad_id,)).fetchone()
-        websites = db.get_amsat_websites(conn)
-        freqs = [format_frequency(f)
-                 for f in db.get_frequency_map(conn, [norad_id]).get(norad_id, [])]
     finally:
         conn.close()
 
@@ -507,19 +837,27 @@ def reports(norad_id):
             "activity": row["activity"] or row["display_name"],
             "label": label,
             "kind": kind,
+            # A jelentés konkrét forrása: az a lekérdezés, amiből ez a sor jött.
+            "source_url": amsat_report_url(row["amsat_name"], hours),
         })
 
-    amsat_main, _extra = amsat_links(freqs, websites.get(norad_id))
+    # A következő tágabb ablak: ide vezet a "van még régebbi" hivatkozás.
+    wider = next((h for h, _ in REPORTS_WINDOWS if h > hours), None)
     return render_template(
         "reports.html",
         items=items,
         activities=activities,
         selected=activity,
+        # Ha a szűkebb ablakban nincs bejelentés a kiválasztott aktivitásról,
+        # a csempéje eltűnne — a szűrés viszont él, ezért külön jelezzük.
+        selected_missing=bool(activity) and activity not in {
+            row["activity"] for row in activities},
         norad_id=norad_id,
+        older=older,
+        windows=REPORTS_WINDOWS,
+        wider=wider,
         sat_name=(sat["name"] if sat else None) or f"NORAD {norad_id}",
-        satnogs_url=satnogs_url(sat["sat_id"] if sat else None, norad_id),
-        amsat_url=amsat_main,
-        window_hours=ACTIVITY_WINDOW_HOURS,
+        window_hours=hours,
     )
 
 

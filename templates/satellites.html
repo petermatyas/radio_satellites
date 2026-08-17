@@ -27,8 +27,8 @@
     {% for s in sats %}
       <div class="card">
         <div class="name">
-          {% if s.website %}<a href="{{ s.website }}" target="_blank">{{ s.name }}</a>
-          {% else %}{{ s.name }}{% endif %}
+          <a href="{{ s.info_url }}" target="_blank" rel="noopener"
+             title="{{ s.name }} a(z) {{ s.info_host }} oldalon">{{ s.name }}</a>
           <span class="norad">NORAD {{ s.norad_id }}</span>
         </div>
         <div class="meta">
@@ -72,6 +72,8 @@
 
         <div class="src">
           forrás:
+          <a href="{{ s.n2yo_url }}" target="_blank" rel="noopener">N2YO</a>
+          <span class="sep">·</span>
           <a href="{{ s.satnogs_url }}" target="_blank" rel="noopener">SatNOGS DB</a>
           <span class="sep">·</span>
           <a href="{{ s.amsat_url }}" target="_blank" rel="noopener">AMSAT</a>

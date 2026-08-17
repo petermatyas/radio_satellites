@@ -15,6 +15,7 @@ import db
 import hamsat
 import satnogs
 import sstv
+import tle
 
 
 def run(name, fn):
@@ -36,7 +37,7 @@ def main():
     parser.add_argument("--hours", type=int, default=amsat.DEFAULT_HOURS,
                         help="AMSAT jelentések időablaka órában")
     parser.add_argument("--skip", nargs="*", default=[],
-                        choices=["satnogs", "amsat", "amsatfreq", "hamsat", "sstv"],
+                        choices=["satnogs", "amsat", "amsatfreq", "hamsat", "sstv", "tle"],
                         help="kihagyandó források")
     parser.add_argument("--traceback", action="store_true")
     args = parser.parse_args()
@@ -73,6 +74,10 @@ def main():
             total += 1
             ok += run("ARISS SSTV", lambda: save_sstv(conn))
 
+        if "tle" not in args.skip:
+            total += 1
+            ok += run("Celestrak pályaelemek", lambda: tle.collect(conn))
+
         print(f"\n{ok}/{total} forrás sikeres")
         summary(conn)
     finally:
@@ -98,6 +103,7 @@ def summary(conn):
         "aktiváció": "SELECT COUNT(*) FROM activations",
         "SSTV esemény": "SELECT COUNT(*) FROM sstv_events",
         "átvonulás": "SELECT COUNT(*) FROM passes",
+        "pályaelem": "SELECT COUNT(*) FROM tle",
     }
     print("\nAdatbázis:")
     for label, sql in counts.items():
