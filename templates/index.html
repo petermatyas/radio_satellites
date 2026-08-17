@@ -13,7 +13,7 @@
       {%- if rove_count %}, <strong style="color:var(--rove)">{{ rove_count }} bejelentett aktivitás</strong>{% endif %}
       &middot; frissítve {{ now.strftime('%Y-%m-%d %H:%M') }}
       <br>
-      <a href="/settings">{{ '%.4f'|format(observer[0]) }},
+      <a href="{{ request.script_root }}/settings">{{ '%.4f'|format(observer[0]) }},
         {{ '%.4f'|format(observer[1]) }}</a> pozícióra
     </div>
   </header>
@@ -149,7 +149,7 @@
     <div class="empty">
       {% if selected or modes %}
         A szűrésnek egy átvonulás sem felel meg.
-        <br><a href="/">szűrők törlése</a>
+        <br><a href="{{ request.script_root }}/">szűrők törlése</a>
       {% else %}
         Nincs jövőbeli átvonulás az adatbázisban.
         <br><code>python main.py --days 5</code>

@@ -380,13 +380,13 @@
 <div class="wrap">
 
   <nav class="top">
-    <a href="/" class="{{ 'on' if page == 'passes' }}">Átvonulások</a>
-    <a href="/events" class="{{ 'on' if page == 'events' }}">Események</a>
-    <a href="/satellites" class="{{ 'on' if page == 'satellites' }}">Műholdak</a>
-    <a href="/settings" class="{{ 'on' if page == 'settings' }}">Beállítások</a>
+    <a href="{{ request.script_root }}/" class="{{ 'on' if page == 'passes' }}">Átvonulások</a>
+    <a href="{{ request.script_root }}/events" class="{{ 'on' if page == 'events' }}">Események</a>
+    <a href="{{ request.script_root }}/satellites" class="{{ 'on' if page == 'satellites' }}">Műholdak</a>
+    <a href="{{ request.script_root }}/settings" class="{{ 'on' if page == 'settings' }}">Beállítások</a>
 
     <div class="refresh">
-      <form method="post" action="/refresh">
+      <form method="post" action="{{ request.script_root }}/refresh">
         <input type="hidden" name="next" value="{{ current_path }}">
         <button type="submit" class="act" id="refresh-all"
                 {{ 'disabled' if refresh_state.running }}>
@@ -396,7 +396,7 @@
 
       <details>
         <summary>▾</summary>
-        <form class="menu" method="post" action="/refresh">
+        <form class="menu" method="post" action="{{ request.script_root }}/refresh">
           <input type="hidden" name="next" value="{{ current_path }}">
           {% for key, label in refresh_sources %}
             <label>
@@ -442,6 +442,8 @@
 </div>
 
 <script>
+var prefix = {{ request.script_root|tojson }} || '';
+
 // Amíg fut a frissítés, kérdezzük az állapotát; a végén újratöltjük az
 // oldalt, hogy a friss adatok megjelenjenek. Az újratöltés után az
 // állapotjelző zölden mutatja, hogy kész, majd 3 mp múlva eltűnik.
@@ -465,7 +467,7 @@
   }
 
   function tick() {
-    fetch('/refresh/status').then(function (r) { return r.json(); })
+    fetch(prefix + '/refresh/status').then(function (r) { return r.json(); })
       .then(function (s) {
         log.textContent = s.log.join('\n');
         log.scrollTop = log.scrollHeight;
@@ -536,7 +538,7 @@
   }
 
   function tick() {
-    fetch('/api/positions?norad=' + norads.join(','))
+    fetch(prefix + '/api/positions?norad=' + norads.join(','))
       .then(function (r) { return r.json(); })
       .then(function (data) {
         blocks.forEach(function (block) {

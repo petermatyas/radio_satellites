@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlparse
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import amsat_freq
 import db
@@ -17,7 +18,9 @@ import refresh as refresh_module
 import sstv
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 app.config["DB_PATH"] = db.DEFAULT_DB_PATH
+app.config["APPLICATION_ROOT"] = "/sats"
 refresher = refresh_module.Refresher(app.config["DB_PATH"])
 
 # Ennyi ideig tekintünk egy AMSAT észlelést "friss"-nek.
@@ -52,7 +55,8 @@ def reports_url(norad_id, activity=None, age_hours=None):
             (hours for hours, _ in REPORTS_WINDOWS if hours > age_hours),
             REPORTS_WINDOWS[-1][0])
     query = f"?{urlencode(params)}" if params else ""
-    return f"/reports/{norad_id}{query}"
+    prefix = request.script_root if request else app.config.get("APPLICATION_ROOT", "")
+    return f"{prefix}/reports/{norad_id}{query}"
 
 AMSAT_STATUS_URL = "https://www.amsat.org/status/index.php"
 AMSAT_REPORTS_API = "https://www.amsat.org/status/api/v1/reports.php"
@@ -605,7 +609,9 @@ def pass_filter_url(norad_ids, modes):
     """A következő átvonulások lapja a megadott szűrőkkel."""
     params = ([("norad_id", n) for n in norad_ids]
               + [("mode", m) for m in modes])
-    return "/?" + urlencode(params) if params else "/"
+    prefix = request.script_root if request else app.config.get("APPLICATION_ROOT", "")
+    path = f"{prefix}/" if prefix else "/"
+    return path + ("?" + urlencode(params) if params else "")
 
 
 def toggled(values, value):

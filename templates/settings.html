@@ -14,7 +14,7 @@
   {% for m in messages %}<div class="flash ok">{{ m }}</div>{% endfor %}
   {% for e in errors %}<div class="flash err">{{ e }}</div>{% endfor %}
 
-  <form method="post" action="/settings">
+  <form method="post" action="{{ request.script_root }}/settings">
     <div class="card">
       <h2 class="sec">Megfigyelő pozíciója</h2>
       <div class="grid">
@@ -71,7 +71,7 @@
         eseményeket írják le, csak más koordinátákkal — a listákból ki vannak
         szűrve, de a számlálókat torzítják.
       </div>
-      <form method="post" action="/settings/cleanup" style="margin-top:.75rem">
+      <form method="post" action="{{ request.script_root }}/settings/cleanup" style="margin-top:.75rem">
         <button type="submit" class="act ghost">
           {{ stale.passes }} elárvult átvonulás törlése
         </button>
@@ -86,8 +86,8 @@
 
     {# Egyszerre több azonosító is megadható; vessző, szóköz és új sor is
        elválasztó, hogy máshonnan kimásolt lista is beilleszthető legyen. #}
-    <form method="post" action="/settings/track" class="addrow">
-      <input type="hidden" name="next" value="/settings">
+    <form method="post" action="{{ request.script_root }}/settings/track" class="addrow">
+      <input type="hidden" name="next" value="{{ request.script_root }}/settings">
       <input type="text" name="norad_ids" inputmode="numeric"
              pattern="[\s,;0-9]*" placeholder="NORAD ID-k, pl. 25544, 33591"
              title="Egy vagy több NORAD ID, vesszővel vagy szóközzel elválasztva"
@@ -144,16 +144,16 @@
             </td>
             <td data-key="{{ counts[sat.norad_id] }}">
               {% if counts[sat.norad_id] %}
-                <a href="/?norad_id={{ sat.norad_id }}">{{ counts[sat.norad_id] }}</a>
+                <a href="{{ request.script_root }}/?norad_id={{ sat.norad_id }}">{{ counts[sat.norad_id] }}</a>
               {% else %}0{% endif %}
             </td>
             <td style="text-align:right">
               {# A × véglegesen leveszi a sort, ezért visszakérdezünk; a
                  kérdésben a név is benne van, hogy ne rossz sort hagyjunk jóvá. #}
-              <form method="post" action="/settings/untrack"
+              <form method="post" action="{{ request.script_root }}/settings/untrack"
                     data-confirm="Biztosan leveszed a követett műholdak közül: {{ sat.name or '(még név nélkül)' }} (NORAD {{ sat.norad_id }})? A már letöltött átvonulásai megmaradnak az adatbázisban.">
                 <input type="hidden" name="norad_id" value="{{ sat.norad_id }}">
-                <input type="hidden" name="next" value="/settings">
+                <input type="hidden" name="next" value="{{ request.script_root }}/settings">
                 <button type="submit" class="tiny danger"
                         title="Levétel a listáról">×</button>
               </form>

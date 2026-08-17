@@ -13,12 +13,12 @@
     </div>
   </header>
 
-  <form class="filters" method="get" action="/satellites">
+  <form class="filters" method="get" action="{{ request.script_root }}/satellites">
     <input type="search" name="q" value="{{ query }}"
            placeholder="név vagy NORAD ID…">
     <button type="submit" class="chip">Keresés</button>
     <a class="chip {{ 'active' if heard_only }}"
-       href="/satellites?q={{ query }}{{ '' if heard_only else '&heard=1' }}">
+       href="{{ request.script_root }}/satellites?q={{ query }}{{ '' if heard_only else '&heard=1' }}">
       Csak amit hallottak
     </a>
   </form>
@@ -36,13 +36,13 @@
           {%- if s.launched %}{{ s.launched }}<span class="sep">|</span>{% endif -%}
           {{ s.countries or '?' }}
           {%- if s.pass_count %}<span class="sep">|</span>
-            <a href="/?norad_id={{ s.norad_id }}">{{ s.pass_count }} átvonulás</a>
+            <a href="{{ request.script_root }}/?norad_id={{ s.norad_id }}">{{ s.pass_count }} átvonulás</a>
           {%- endif %}
           <span class="sep">|</span>
           {% if s.tracked %}
             <span style="color:var(--sstv)">követve</span>
           {% else %}
-            <form method="post" action="/settings/track" style="display:inline">
+            <form method="post" action="{{ request.script_root }}/settings/track" style="display:inline">
               <input type="hidden" name="norad_id" value="{{ s.norad_id }}">
               <input type="hidden" name="next" value="{{ current_path }}">
               <button type="submit" class="tiny">+ követem</button>
@@ -52,7 +52,7 @@
 
         {% for a in s.activity %}
           <a class="tag heard"
-             href="/reports/{{ s.norad_id }}?activity={{ a.activity }}"
+             href="{{ request.script_root }}/reports/{{ s.norad_id }}?activity={{ a.activity }}"
              title="Ki és mikor hallotta">
             {{ a.activity }}
             <span class="what">hallották {{ a.age_hours|humanize_age }}
