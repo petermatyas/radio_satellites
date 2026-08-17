@@ -4,8 +4,103 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Műhold-átvonulások{% endblock %}</title>
+
+<!-- A mentett témát MÉG a stíluslap előtt rátesszük a <html>-re, különben
+     betöltéskor egy pillanatra a rendszertéma villanna fel. Ez az egyetlen
+     script, aminek a <head>-ben kell lennie. -->
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) { /* privát mód: marad a rendszertéma */ }
+  })();
+</script>
+
 <style>
+  /* ---------------------------------------------------------------------
+     Témák. Három állapot van:
+       - nincs data-theme  -> a rendszer beállítását követjük
+       - data-theme=light  -> kézzel világosra állítva
+       - data-theme=dark   -> kézzel sötétre állítva
+     Ezért a sötét palettát KÉTSZER kell megadni: egyszer a media query-ben
+     (rendszertéma), egyszer a [data-theme=dark]-ra (kézi váltás). A media
+     query-t a :not([data-theme=light]) védi, különben a rendszer sötétje
+     felülírná a kézzel választott világosat.
+     Színt CSAK itt adunk meg; lentebb minden szabály tokent használ, hogy
+     egy új téma egyetlen blokk legyen.
+     --------------------------------------------------------------------- */
   :root {
+    color-scheme: light;
+    --bg: #f5f7fa;
+    --panel: #ffffff;
+    --panel-2: #eaeff7;
+    --line: #d9e0eb;
+    --text: #131923;
+    --muted: #5b6879;
+    --accent: #0b63c5;
+    --hot: #a8560a;
+    --sstv: #0d7a4f;
+    --rove: #6d28d9;
+    /* Az akcentusszínnel kitöltött gombok felirata. */
+    --on-accent: #ffffff;
+    /* Halvány színes hátterek és keretek (címkék, badge-ek, üzenetsávok).
+       Ugyanannak a színnek az áttetsző változatai — sötét témában világos,
+       világos témában sötét alapszínből, különben eltűnnének. */
+    --accent-bg: rgba(11,99,197,.10);
+    --accent-bg-hover: rgba(11,99,197,.18);
+    --accent-line: rgba(11,99,197,.28);
+    --sstv-bg: rgba(13,122,79,.10);
+    --sstv-line: rgba(13,122,79,.30);
+    --hot-bg: rgba(168,86,10,.10);
+    --hot-line: rgba(168,86,10,.30);
+    --rove-bg: rgba(109,40,217,.10);
+    --rove-line: rgba(109,40,217,.28);
+    --muted-bg: rgba(91,104,121,.12);
+    /* A világtérkép szárazföldje. Külön token: a --line itt túl halvány
+       lenne a tengerhez képest. */
+    --map-land: #ccd6e4;
+    --shadow: 0 8px 24px rgba(15,25,45,.15);
+    /* Hover-kiemelés kitöltött elemeken. Világos témában SÖTÉTÍTeni kell,
+       sötétben világosítani — fixen beégetve az egyik téma alatt visszafelé
+       sülne el (halványabb lenne a hoverelt elem). */
+    --hover-filter: brightness(.92);
+    --backdrop: rgba(15,25,45,.45);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f1218;
+      --panel: #171c26;
+      --panel-2: #1d2431;
+      --line: #2a3242;
+      --text: #e6eaf2;
+      --muted: #8b97ad;
+      --accent: #5aa9ff;
+      --hot: #ffb057;
+      --sstv: #7ee7a8;
+      --rove: #c79bff;
+      --on-accent: #06121f;
+      --accent-bg: rgba(90,169,255,.12);
+      --accent-bg-hover: rgba(90,169,255,.22);
+      --accent-line: rgba(90,169,255,.3);
+      --sstv-bg: rgba(126,231,168,.12);
+      --sstv-line: rgba(126,231,168,.3);
+      --hot-bg: rgba(255,176,87,.12);
+      --hot-line: rgba(255,176,87,.3);
+      --rove-bg: rgba(199,155,255,.12);
+      --rove-line: rgba(199,155,255,.3);
+      --muted-bg: rgba(139,151,173,.12);
+      --map-land: #2a3242;
+      --shadow: 0 8px 24px rgba(0,0,0,.45);
+      --hover-filter: brightness(1.15);
+      --backdrop: rgba(0,0,0,.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
     --bg: #0f1218;
     --panel: #171c26;
     --panel-2: #1d2431;
@@ -16,6 +111,21 @@
     --hot: #ffb057;
     --sstv: #7ee7a8;
     --rove: #c79bff;
+    --on-accent: #06121f;
+    --accent-bg: rgba(90,169,255,.12);
+    --accent-bg-hover: rgba(90,169,255,.22);
+    --accent-line: rgba(90,169,255,.3);
+    --sstv-bg: rgba(126,231,168,.12);
+    --sstv-line: rgba(126,231,168,.3);
+    --hot-bg: rgba(255,176,87,.12);
+    --hot-line: rgba(255,176,87,.3);
+    --rove-bg: rgba(199,155,255,.12);
+    --rove-line: rgba(199,155,255,.3);
+    --muted-bg: rgba(139,151,173,.12);
+    --map-land: #2a3242;
+    --shadow: 0 8px 24px rgba(0,0,0,.45);
+    --hover-filter: brightness(1.15);
+    --backdrop: rgba(0,0,0,.6);
   }
   * { box-sizing: border-box; }
   body {
@@ -42,7 +152,7 @@
     border: 1px solid var(--line); font-size: .8125rem;
   }
   .chip:hover { color: var(--text); border-color: var(--muted); }
-  .chip.active { background: var(--accent); color: #06121f; border-color: var(--accent); font-weight: 600; }
+  .chip.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
 
   /* A műholdcsempékből alapból csak néhány látszik. A maradékot egy rejtett
      jelölő nyitja ki — így nem kell hozzá sem újratöltés, sem JS. A jelölő
@@ -136,7 +246,7 @@
 
   .map .sea { fill: var(--bg); }
   .map .land {
-    fill: var(--line); stroke: var(--muted); stroke-opacity: .35;
+    fill: var(--map-land); stroke: var(--muted); stroke-opacity: .35;
     stroke-width: 1; vector-effect: non-scaling-stroke;
   }
   .map .grid {
@@ -152,6 +262,37 @@
   .track .where { font-size: .72rem; color: var(--muted); }
   .track .where .warn { color: var(--hot); margin-left: .4rem; }
 
+  /* Nagyítás. A grafika a DOM-ban a HELYÉN marad (a .track-en belül), csak
+     fixen kitesszük a képernyő közepére — így a pozíciófrissítő szkript
+     nagyítás közben is megtalálja és tovább rajzolja a műholdat.
+     A kimaradó helyre .zoom-placeholder kerül, különben a flex-sor
+     összeugrana a háttérben, és a kártya magassága ugrálna nyitáskor. */
+  .track svg { cursor: zoom-in; }
+  .track svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .zoom-placeholder { flex: none; }
+
+  .track svg.zoomed {
+    position: fixed; z-index: 60; cursor: zoom-out;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    padding: .75rem; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+    /* Kivétel a globális border-box alól: így az aspect-ratio a TARTALOMRA
+       vonatkozik, nem a kerettel-belsőmargóval együtt mért dobozra. A térkép
+       preserveAspectRatio="none", tehát különben pár százalékkal megnyúlna. */
+    box-sizing: content-box;
+  }
+  /* A méretet vw ÉS vh is korlátozza, hogy magas és széles ablakban is
+     kiférjen; az arányt az aspect-ratio tartja. */
+  .track .map.zoomed { width: min(88vw, 160vh, 62rem); height: auto; aspect-ratio: 2 / 1; }
+  .track .sky.zoomed { width: min(78vw, 80vh, 32rem); height: auto; aspect-ratio: 31 / 30; }
+
+  .zoom-backdrop {
+    position: fixed; inset: 0; z-index: 50;
+    background: var(--backdrop); cursor: zoom-out;
+  }
+  .zoom-backdrop[hidden] { display: none; }
+
   .tag {
     display: inline-flex; align-items: center; gap: .35rem;
     margin: .375rem .375rem 0 0; padding: .2rem .55rem;
@@ -159,9 +300,9 @@
     text-decoration: none;
   }
   .tag .what { font-weight: 400; color: var(--text); opacity: .85; }
-  .tag.sstv { background: rgba(126,231,168,.12); color: var(--sstv); border: 1px solid rgba(126,231,168,.3); }
-  .tag.rove { background: rgba(199,155,255,.12); color: var(--rove); border: 1px solid rgba(199,155,255,.3); }
-  .tag.heard { background: rgba(90,169,255,.12); color: var(--accent); border: 1px solid rgba(90,169,255,.3); }
+  .tag.sstv { background: var(--sstv-bg); color: var(--sstv); border: 1px solid var(--sstv-line); }
+  .tag.rove { background: var(--rove-bg); color: var(--rove); border: 1px solid var(--rove-line); }
+  .tag.heard { background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-line); }
   .note { margin-top: .25rem; font-size: .75rem; color: var(--muted); }
 
   .ops { margin-top: .5rem; }
@@ -184,10 +325,10 @@
   .op .heard {
     padding: .05rem .4rem; border-radius: 4px; font-size: .7rem;
     font-weight: 600; text-decoration: none; white-space: nowrap;
-    background: rgba(90,169,255,.12); color: var(--accent);
-    border: 1px solid rgba(90,169,255,.3);
+    background: var(--accent-bg); color: var(--accent);
+    border: 1px solid var(--accent-line);
   }
-  .op a.heard:hover { background: rgba(90,169,255,.22); }
+  .op a.heard:hover { background: var(--accent-bg-hover); }
   .op .ctcss { color: var(--hot); font-weight: 600; }
   .op .mode { color: var(--muted); font-style: italic; }
   .op .cmt { flex-basis: 100%; color: var(--muted); font-size: .72rem; }
@@ -224,7 +365,7 @@
     position: absolute; right: 0; top: 1.75rem; z-index: 20; min-width: 15rem;
     padding: .625rem; border-radius: 8px;
     background: var(--panel-2); border: 1px solid var(--line);
-    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+    box-shadow: var(--shadow);
   }
   .refresh .menu label {
     display: flex; align-items: center; gap: .5rem;
@@ -235,9 +376,9 @@
   button.act {
     padding: .35rem .8rem; border-radius: 6px; cursor: pointer;
     font: inherit; font-size: .8125rem; font-weight: 600;
-    background: var(--accent); color: #06121f; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
   }
-  button.act:hover { filter: brightness(1.1); }
+  button.act:hover { filter: var(--hover-filter); }
   button.act:disabled { opacity: .5; cursor: default; filter: none; }
   button.ghost {
     background: var(--panel); color: var(--muted); border-color: var(--line);
@@ -245,13 +386,37 @@
   }
   button.ghost:hover { color: var(--text); }
 
+  /* Témaváltó. A gomb mindig azt az ikont mutatja, amire VÁLTANI lehet:
+     világos témában holdat, sötétben napot. A láthatóságot ugyanaz a három
+     állapot vezérli, mint a palettát — így JS nélkül is a helyes ikon
+     látszik (a gomb ilyenkor nem működik, de nem is hazudik). */
+  button.theme {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.9rem; height: 1.9rem; padding: 0;
+    border-radius: 6px; cursor: pointer; font: inherit;
+    background: transparent; color: var(--muted); border: 1px solid transparent;
+  }
+  button.theme:hover { color: var(--text); border-color: var(--line); }
+  button.theme:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.theme svg {
+    width: 1rem; height: 1rem; fill: none; stroke: currentColor;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  }
+  button.theme .sun { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) button.theme .moon { display: none; }
+    :root:not([data-theme="light"]) button.theme .sun { display: block; }
+  }
+  :root[data-theme="dark"] button.theme .moon { display: none; }
+  :root[data-theme="dark"] button.theme .sun { display: block; }
+
   .status {
     margin-bottom: 1.25rem; padding: .625rem .875rem; border-radius: 8px;
     background: var(--panel); border: 1px solid var(--line); font-size: .8125rem;
   }
   .status.busy { border-color: var(--accent); }
   .status.done {
-    background: rgba(126,231,168,.12); border-color: rgba(126,231,168,.4);
+    background: var(--sstv-bg); border-color: var(--sstv-line);
     color: var(--sstv);
   }
   .status.done pre { color: var(--sstv); opacity: .8; }
@@ -273,10 +438,10 @@
     margin-bottom: .5rem; padding: .5rem .75rem; border-radius: 6px;
     font-size: .8125rem;
   }
-  .flash.ok { background: rgba(126,231,168,.1); color: var(--sstv);
-              border: 1px solid rgba(126,231,168,.3); }
-  .flash.err { background: rgba(255,176,87,.1); color: var(--hot);
-               border: 1px solid rgba(255,176,87,.3); }
+  .flash.ok { background: var(--sstv-bg); color: var(--sstv);
+              border: 1px solid var(--sstv-line); }
+  .flash.err { background: var(--hot-bg); color: var(--hot);
+               border: 1px solid var(--hot-line); }
 
   h2.sec {
     margin: 0 0 .75rem; font-size: .8125rem; font-weight: 600;
@@ -323,16 +488,16 @@
   }
   a.badge { text-decoration: none; border: 1px solid transparent; }
   a.badge:hover { border-color: currentColor; }
-  .badge.ok { background: rgba(126,231,168,.12); color: var(--sstv); }
-  .badge.warn { background: rgba(255,176,87,.12); color: var(--hot); }
-  .badge.bad { background: rgba(139,151,173,.12); color: var(--muted); }
+  .badge.ok { background: var(--sstv-bg); color: var(--sstv); }
+  .badge.warn { background: var(--hot-bg); color: var(--hot); }
+  .badge.bad { background: var(--muted-bg); color: var(--muted); }
 
   /* Kattintható jelzés: a badge maga a nyitógomb, alatta jelenik meg az ok. */
   details.why > summary { list-style: none; cursor: pointer; display: inline-block; }
   details.why > summary::-webkit-details-marker { display: none; }
   details.why > summary::after { content: "▾"; margin-left: .3rem; opacity: .7; }
   details.why[open] > summary::after { content: "▴"; }
-  details.why > summary:hover { filter: brightness(1.25); }
+  details.why > summary:hover { filter: var(--hover-filter); }
   details.why .note { max-width: 24rem; white-space: normal; }
 
   table.tracked { width: 100%; margin-top: .875rem; border-collapse: collapse; font-size: .8125rem; }
@@ -386,6 +551,18 @@
     <a href="{{ request.script_root }}/settings" class="{{ 'on' if page == 'settings' }}">Beállítások</a>
 
     <div class="refresh">
+      <button type="button" id="theme-toggle" class="theme"
+              title="Világos / sötét téma" aria-label="Téma váltása">
+        <svg class="moon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5a8.5 8.5 0 1 0 10.8 10.8Z"/>
+        </svg>
+        <svg class="sun" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.2"/>
+          <path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.3 6.3 4.8 4.8
+                   M19.2 19.2l-1.5-1.5M17.7 6.3l1.5-1.5M4.8 19.2l1.5-1.5"/>
+        </svg>
+      </button>
+
       <form method="post" action="{{ request.script_root }}/refresh">
         <input type="hidden" name="next" value="{{ current_path }}">
         <button type="submit" class="act" id="refresh-all"
@@ -441,8 +618,81 @@
 
 </div>
 
+<div class="zoom-backdrop" hidden></div>
+
 <script>
 var prefix = {{ request.script_root|tojson }} || '';
+
+// Témaváltás. Amíg nincs kézi választás, a rendszer beállítását követjük —
+// az első kattintás dönti el, mihez képest váltsunk.
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  if (!btn) return;
+  var root = document.documentElement;
+
+  btn.addEventListener('click', function () {
+    var dark = root.dataset.theme
+      ? root.dataset.theme === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark';
+    root.dataset.theme = next;
+    try { localStorage.setItem('theme', next); } catch (e) { /* privát mód */ }
+  });
+})();
+
+// A pályagrafikák nagyítása kattintásra. Az SVG nem másolódik és nem kerül át
+// máshova a DOM-ban: a .track-en belül marad, csak fixen kikerül a képernyő
+// közepére. Így a lenti pozíciófrissítő (block.querySelector('.sat-map'))
+// nagyítás közben is megtalálja, és a műhold tovább mozog a nagy térképen.
+(function () {
+  var backdrop = document.querySelector('.zoom-backdrop');
+  if (!backdrop) return;
+  var current = null, placeholder = null;
+
+  function close() {
+    if (!current) return;
+    current.classList.remove('zoomed');
+    current.setAttribute('aria-expanded', 'false');
+    placeholder.parentNode.removeChild(placeholder);
+    backdrop.hidden = true;
+    var was = current;
+    current = placeholder = null;
+    was.focus();
+  }
+
+  function open(svg) {
+    close();
+    // A kimaradó helyet ugyanakkora térkitöltő veszi át, különben a kártya
+    // összeugrana a háttérben, és bezáráskor visszaugrana.
+    var box = svg.getBoundingClientRect();
+    placeholder = document.createElement('span');
+    placeholder.className = 'zoom-placeholder';
+    placeholder.style.width = box.width + 'px';
+    placeholder.style.height = box.height + 'px';
+    svg.parentNode.insertBefore(placeholder, svg);
+    svg.classList.add('zoomed');
+    svg.setAttribute('aria-expanded', 'true');
+    backdrop.hidden = false;
+    current = svg;
+    svg.focus();
+  }
+
+  document.addEventListener('click', function (e) {
+    if (e.target === backdrop) { close(); return; }
+    var svg = e.target.closest && e.target.closest('.track svg');
+    if (!svg) return;
+    if (svg === current) { close(); } else { open(svg); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { close(); return; }
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var el = document.activeElement;
+    if (!el || !el.matches || !el.matches('.track svg')) return;
+    e.preventDefault();
+    if (el === current) { close(); } else { open(el); }
+  });
+})();
 
 // Amíg fut a frissítés, kérdezzük az állapotát; a végén újratöltjük az
 // oldalt, hogy a friss adatok megjelenjenek. Az újratöltés után az

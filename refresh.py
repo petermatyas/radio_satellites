@@ -62,6 +62,32 @@ def _run_source(key, conn):
     raise ValueError(f"ismeretlen forrás: {key}")
 
 
+def _source_jobs(keys):
+    """A választott források feladatlistája: [(kulcs, felirat, függvény)]."""
+    labels = dict(SOURCES)
+    return [(key, labels[key], lambda conn, key=key: _run_source(key, conn))
+            for key in keys]
+
+
+def _new_satellite_jobs(norad_ids):
+    """Egy frissen felvett műhold adatai.
+
+    Csak pályaelem és átvonulás: ez a kettő kell ahhoz, hogy a műhold azonnal
+    megjelenjen a listákon és a térképen. A nevét és a transzpondereit a
+    SatNOGS adja, az viszont teljes katalógusimport (tízezres nagyságrend) —
+    azt nem futtatjuk le egyetlen felvétel miatt, a következő teljes frissítés
+    úgyis behozza. A kulcsok szándékosan a SOURCES-beli kulcsok, hogy az
+    állapotjelző sáv változtatás nélkül tudja feliratozni a lépéseket.
+    """
+    ids = list(norad_ids)
+    labels = dict(SOURCES)
+    return [
+        ("tle", labels["tle"], lambda conn: tle.collect(conn, norad_ids=ids)),
+        ("passes", labels["passes"],
+         lambda conn: n2yo.collect_tracked(conn, only=ids)),
+    ]
+
+
 class Refresher:
     """Egyszerre egy frissítés futhat; az állapotát a felület kérdezi le."""
 
@@ -89,15 +115,29 @@ class Refresher:
         keys = [k for k in SOURCE_KEYS if k in keys]
         if not keys:
             return False, "nincs kiválasztott forrás"
+        return self._start(_source_jobs(keys))
 
+    def start_for(self, norad_ids):
+        """Frissen felvett műholdak adatainak letöltése, a teljes kör helyett.
+
+        Ugyanaz a szál és ugyanaz az állapotjelző, mint a kézi frissítésnél:
+        egyszerre továbbra is csak egy futás lehet, és a felület magától
+        mutatja a haladást, majd újratölt.
+        """
+        ids = list(norad_ids)
+        if not ids:
+            return False, "nincs új műhold"
+        return self._start(_new_satellite_jobs(ids))
+
+    def _start(self, jobs):
         with self._lock:
             if self._state["running"]:
                 return False, "már fut egy frissítés"
-            self._state.update(running=True, sources=keys, done=[],
-                               current=None, log=[], error=None,
+            self._state.update(running=True, sources=[k for k, _, _ in jobs],
+                               done=[], current=None, log=[], error=None,
                                started_at=time.time(), finished_at=None)
 
-        self._thread = threading.Thread(target=self._work, args=(keys,),
+        self._thread = threading.Thread(target=self._work, args=(jobs,),
                                         daemon=True)
         self._thread.start()
         return True, "elindult"
@@ -107,25 +147,24 @@ class Refresher:
             self._state["log"].extend(
                 line for line in text.splitlines() if line.strip())
 
-    def _work(self, keys):
-        labels = dict(SOURCES)
+    def _work(self, jobs):
         # Saját kapcsolat: az SQLite objektumok nem oszthatók meg szálak közt.
         conn = db.connect(self.db_path)
         conn.execute("PRAGMA busy_timeout = 10000")
         try:
-            for key in keys:
+            for key, label, run in jobs:
                 with self._lock:
-                    self._state["current"] = labels[key]
+                    self._state["current"] = label
                 buffer = io.StringIO()
                 try:
                     # A gyűjtők a szabványos kimenetre írnak; azt fogjuk fel,
                     # hogy ugyanaz a részletes napló jelenjen meg a felületen.
                     with contextlib.redirect_stdout(buffer):
-                        _run_source(key, conn)
+                        run(conn)
                     self._log(buffer.getvalue())
                 except Exception as exc:
                     self._log(buffer.getvalue())
-                    self._log(f"HIBA ({labels[key]}): "
+                    self._log(f"HIBA ({label}): "
                               f"{exc.__class__.__name__}: {exc}")
                     traceback.print_exc()
                 with self._lock:

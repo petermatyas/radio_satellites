@@ -14,10 +14,11 @@
 
     {% if p.sky %}
       <svg class="sky" viewBox="-1.55 -1.5 3.1 3"
+           role="button" tabindex="0" aria-expanded="false"
            data-start="{{ p.start_utc }}" data-max="{{ p.max_utc or '' }}"
            data-end="{{ p.end_utc }}"
            data-arc="{{ (p.sky.start + p.sky.control + p.sky.end)|join(' ') }}">
-        <title>Az átvonulás útja az égbolton</title>
+        <title>Az átvonulás útja az égbolton — kattints a nagyításhoz</title>
         <use href="#skygrid"/>
         <path class="arc" d="{{ p.sky.path }}"/>
         <circle class="rise" cx="{{ p.sky.start[0] }}" cy="{{ p.sky.start[1] }}" r="0.075"/>
@@ -30,8 +31,9 @@
       </svg>
     {% endif %}
 
-    <svg class="map" viewBox="0 0 360 180" preserveAspectRatio="none">
-      <title>A műhold alatti pont és a pályanyom</title>
+    <svg class="map" viewBox="0 0 360 180" preserveAspectRatio="none"
+         role="button" tabindex="0" aria-expanded="false">
+      <title>A műhold alatti pont és a pályanyom — kattints a nagyításhoz</title>
       <rect class="sea" x="0" y="0" width="360" height="180"/>
       <use class="land" href="#worldland"/>
       <path class="grid" d="M0 90H360M180 0V180"/>

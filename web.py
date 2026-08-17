@@ -987,6 +987,13 @@ def track_feedback(args):
     _, invalid = parse_norad_ids(args.get("invalid"))
     if invalid:
         errors.append(f"Érvénytelen NORAD ID: {', '.join(invalid)}")
+    if args.get("fetch") == "started":
+        messages.append("Az adatok letöltése elindult: pályaelemek és "
+                        "átvonulások. A frissítés végén az oldal újratölt.")
+    elif args.get("fetch") == "busy":
+        errors.append("Épp fut egy másik frissítés, ezért az új műhold adatai "
+                      "még nem töltődtek le. Indítsd el a Frissítést, ha az "
+                      "befejeződött.")
     return messages, errors
 
 
@@ -1161,6 +1168,14 @@ def track_satellite():
         finally:
             conn.close()
 
+    # A frissen felvett műholdhoz rögtön lehúzzuk a pályaelemet és az
+    # átvonulásokat, különben a következő teljes frissítésig üresen állna a
+    # listákon. A kapcsolatot előbb lezártuk: a háttérszál sajátot nyit.
+    fetch = ""
+    if added:
+        started, _ = refresher.start_for(added)
+        fetch = "started" if started else "busy"
+
     target = request.form.get("next") or url_for("settings")
     # A Műholdak lapon a sor maga jelzi a felvételt ("követve"), ezért csak a
     # Beállítások lapra fűzzük hozzá a szöveges visszajelzést. Session nélkül
@@ -1172,6 +1187,7 @@ def track_satellite():
         added=",".join(str(n) for n in added),
         kept=",".join(str(n) for n in ids if n not in added),
         invalid=" ".join(invalid),
+        fetch=fetch,
     )
 
 

@@ -22,9 +22,6 @@ ALT = db.DEFAULT_SETTINGS["alt"]
 DAYS = db.DEFAULT_SETTINGS["days"]
 MIN_ELEVATION_DEGREE = db.DEFAULT_SETTINGS["min_elevation"]
 
-#NORAD_ID = 25544
-NORAD_ID = 67279 # GALAPAGOS-UTE
-
 BASE_URL = "https://api.n2yo.com/rest/v1/satellite/radiopasses"
 
 
@@ -113,19 +110,37 @@ def collect(conn, norad_id, observer=None, days=None,
 
 
 def collect_tracked(conn, days=None, min_elevation=None,
-                    force=False, verbose=True):
+                    force=False, verbose=True, only=None):
     """Frissítés a Beállításokban megadott műholdakra és pozícióra.
 
     A katalógus szerint nem aktív műholdakat (visszatért, dead, még nem
     indult) kihagyjuk: érdemi átvonulás úgysem jönne rájuk, az N2YO napi
     kvótáját viszont fogyasztanák. A listán maradnak, csak nem töltünk hozzá.
+
+    Üres követett listával nem töltünk semmit. Korábban ilyenkor egy beégetett
+    NORAD ID-re esett vissza, ami friss (üres) adatbázison azt jelentette, hogy
+    az első frissítés egy oda nem tartozó műholdat töltött le.
+
+    Az "only" egy NORAD ID lista: ilyenkor csak azokra töltünk. Így egy frissen
+    felvett műhold adatait be lehet hozni anélkül, hogy az összes követettre
+    újra elmennénk az N2YO-hoz (a napi kvóta miatt sem mindegy).
     """
     saved = db.get_settings(conn)
     observer = (saved["lat"], saved["lon"], saved["alt"])
     tracked = db.get_tracked_status(conn)
-    active = [sat["norad_id"] for sat in tracked if not sat["reason"]] or (
-        [NORAD_ID] if not tracked else [])
+    if only is not None:
+        wanted = set(only)
+        tracked = [sat for sat in tracked if sat["norad_id"] in wanted]
+    active = [sat["norad_id"] for sat in tracked if not sat["reason"]]
     skipped = [sat for sat in tracked if sat["reason"]]
+
+    if not tracked:
+        # Szűkített futásnál nem "üres a lista" a helyzet, hanem a kért ID nincs
+        # (már) követve — arról nincs mit mondani a felhasználónak.
+        if verbose and only is None:
+            print("N2YO: nincs követett műhold, nem töltöttem átvonulást. "
+                  "A Beállítások lapon vehetsz fel NORAD ID-ket.")
+        return {"satellites": 0, "passes": 0, "skipped": 0}
 
     if verbose:
         for sat in skipped:
