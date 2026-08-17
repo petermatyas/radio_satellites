@@ -1194,7 +1194,12 @@ def inject_refresh():
     return {
         "refresh_sources": refresh_module.SOURCES,
         "refresh_state": refresher.status(),
-        "current_path": request.full_path.rstrip("?"),
+        # A script_root KELL elé: a full_path a SCRIPT_NAME nélküli útvonalat
+        # adja, így reverse proxy mögött (ha1mp.hu/sats) csak "/" lenne belőle.
+        # Ez a "next" mezőbe kerül, és a POST-ok ide irányítanak vissza — prefix
+        # nélkül a /sats-on kívülre, a landing oldalra dobná a böngészőt.
+        # Proxy nélkül a script_root üres, tehát lokálisan változatlan.
+        "current_path": request.script_root + request.full_path.rstrip("?"),
     }
 
 
