@@ -1,0 +1,17 @@
+{# Országzászló a műhold neve után.
+
+   A kódot a SatNOGS katalógus adja (countries mező), a "flags" szűrő pedig
+   {code, flag, name} hármasokra bontja — több ország is lehet (az ISS-nél
+   például RU,US). Ha nincs adat, a ciklus üresen fut le, tehát a névsor
+   változatlan marad.
+
+   Az emoji role="img"-ként van felcímkézve, különben a felolvasó a nyers
+   jelpárt betűzné ki. Windowson a böngésző nem rajzol zászlót, hanem a két
+   betűt mutatja (US) — az is beszédes, és a title mindkét esetben ott van. #}
+
+{% macro country_flags(codes) %}
+  {%- for c in codes|flags -%}
+    <span class="flag" role="img" title="{{ c.name }}"
+          aria-label="{{ c.name }}">{{ c.flag }}</span>
+  {%- endfor -%}
+{% endmacro %}

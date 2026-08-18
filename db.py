@@ -801,6 +801,32 @@ def save_activations(conn, activations):
     return inserted, len(activations) - inserted
 
 
+def get_norad_by_designator(conn, designators):
+    """RS-jelzés -> NORAD azonosító ({"RS40S": 57172, ...}).
+
+    Az orosz amatőrműholdak RS-kódja a katalógusban az alt_names mezőben áll,
+    vesszős listában (pl. "RS40S, УмКА-1"), néha a névben. A jelzésre keresünk,
+    mert az egyértelmű — a névre illesztés ("Monitor-3" vs "MONITOR-3")
+    bizonytalanabb lenne.
+    """
+    found = {}
+    for designator in designators:
+        code = (designator or "").strip().upper()
+        if not code:
+            continue
+        row = conn.execute(
+            """
+            SELECT norad_id FROM satellites
+             WHERE upper(coalesce(alt_names, '')) LIKE ?
+                OR upper(name) LIKE ?
+             LIMIT 1
+            """,
+            (f"%{code}%", f"%{code}%")).fetchone()
+        if row:
+            found[code] = row["norad_id"]
+    return found
+
+
 def save_sstv_events(conn, events):
     """SSTV bejelentések mentése.
 
@@ -901,18 +927,48 @@ def name_index(conn):
 
 
 def get_transmitter_map(conn, norad_ids=None):
-    """NORAD ID -> aktív amatőr transzponderek listája."""
-    sql = ("SELECT * FROM transmitters "
-           "WHERE status = 'active' AND is_amateur = 1 AND norad_id IS NOT NULL")
+    """NORAD ID -> a kártyán megjelenítendő adók listája.
+
+    Az amatőr transzponderek mellett a CSAK VÉTELRE szolgáló lejövőket is
+    visszaadja — de csak olyan műholdakról, amiken egyáltalán NINCS aktív
+    feltöltés. Az időjárási műholdak (NOAA APT, METEOR LRPT, HRPT) így
+    megjelennek: eddig üresen maradt a kártyájuk, mert egyetlen adójuk sem
+    amatőr sávú.
+
+    A "nincs feltöltés" a jó feltétel, nem a satellites.is_amateur jelző: egy
+    félresorolt transzponder (a METEOR M2-3 3,4 GHz-es telemetriája) amatőrré
+    minősítené a műholdat, és megint kimaradna a lényeg. Fordítva pedig az
+    ISS-t védi: ott van mit dolgozni, ezért nem árasztjuk el a kártyát a 28
+    nem amatőr lejövőjével.
+
+    A sorrend frekvencia szerint növekvő, hogy a listát vágó nézetekben a
+    hasznos VHF-es képadás elöl legyen, ne a 8 GHz-es nyers X-band.
+    """
+    sql = """
+        SELECT t.* FROM transmitters t
+         WHERE t.status = 'active' AND t.norad_id IS NOT NULL
+           AND (t.is_amateur = 1
+                OR (t.downlink_low IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM transmitters u
+                                     WHERE u.norad_id = t.norad_id
+                                       AND u.status = 'active'
+                                       AND u.uplink_low IS NOT NULL)))
+    """
     params = []
     if norad_ids:
-        sql += f" AND norad_id IN ({','.join('?' * len(norad_ids))})"
+        sql += f" AND t.norad_id IN ({','.join('?' * len(norad_ids))})"
         params = list(norad_ids)
-    sql += " ORDER BY downlink_low"
+    sql += " ORDER BY t.downlink_low"
 
     by_sat = {}
     for row in conn.execute(sql, params):
-        by_sat.setdefault(row["norad_id"], []).append(row)
+        # Ugyanaz a frekvencia-üzemmód páros többször is szerepelhet (a METEOR
+        # M2-3-nál 72 és 80 kbps-es LRPT). A kártyán ezek azonosan néznének ki.
+        rows = by_sat.setdefault(row["norad_id"], [])
+        if any(r["downlink_low"] == row["downlink_low"] and r["mode"] == row["mode"]
+               for r in rows):
+            continue
+        rows.append(row)
     return by_sat
 
 

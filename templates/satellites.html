@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ops.html" import ops %}
+{% from "_flags.html" import country_flags %}
 {% set page = 'satellites' %}
 {% block title %}Rádióamatőr műholdak{% endblock %}
 
@@ -28,13 +29,13 @@
       <div class="card">
         <div class="name">
           <a href="{{ s.info_url }}" target="_blank" rel="noopener"
-             title="{{ s.name }} a(z) {{ s.info_host }} oldalon">{{ s.name }}</a>
+             title="{{ s.name }} a(z) {{ s.info_host }} oldalon">{{ s.name }}</a>{{ country_flags(s.countries) }}
           <span class="norad">NORAD {{ s.norad_id }}</span>
         </div>
         <div class="meta">
           {%- if s.alt_names %}{{ s.alt_names }}<span class="sep">|</span>{% endif -%}
           {%- if s.launched %}{{ s.launched }}<span class="sep">|</span>{% endif -%}
-          {{ s.countries or '?' }}
+          {{ s.countries|flags|map(attribute='name')|join(', ') or '?' }}
           {%- if s.pass_count %}<span class="sep">|</span>
             <a href="{{ request.script_root }}/?norad_id={{ s.norad_id }}">{{ s.pass_count }} átvonulás</a>
           {%- endif %}

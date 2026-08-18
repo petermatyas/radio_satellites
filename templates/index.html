@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_ops.html" import ops %}
 {% from "_track.html" import track %}
+{% from "_flags.html" import country_flags %}
 {% set page = 'passes' %}
 {% block title %}Következő átvonulások{% endblock %}
 
@@ -69,7 +70,7 @@
           <div>
             <div class="name">
               <a href="{{ p.info_url }}" target="_blank" rel="noopener"
-                 title="{{ p.sat_name }} a(z) {{ p.info_host }} oldalon">{{ p.sat_name }}</a>
+                 title="{{ p.sat_name }} a(z) {{ p.info_host }} oldalon">{{ p.sat_name }}</a>{{ country_flags(p.countries) }}
               <span class="norad">NORAD {{ p.norad_id }}</span>
             </div>
             <div class="meta">

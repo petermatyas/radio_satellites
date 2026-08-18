@@ -28,6 +28,9 @@
         <circle class="sat-sky" r="0.11"
                 {% if p.sky_now %}cx="{{ p.sky_now[0] }}" cy="{{ p.sky_now[1] }}"
                 {% else %}hidden{% endif %}/>
+        {# A haladási irány nyila. Az égbolt-korongon az ív érintője adja, ezt
+           a base.html szkriptje számolja ki — oldalletöltéskor még rejtve. #}
+        <path class="head-sky" d="M 0.30 0 L 0.15 -0.09 L 0.15 0.09 Z" hidden/>
       </svg>
     {% endif %}
 
@@ -43,6 +46,12 @@
       <circle class="sat-map" r="5"
               {% if pos and not pos.error %}cx="{{ pos.x }}" cy="{{ pos.y }}"
               {% else %}hidden{% endif %}/>
+      {# Ugyanaz a nyíl a térképen: a szöget a szerver adja (heading), mert a
+         ±180. hosszúsági fok átlépését ott egy helyen kezeljük. #}
+      <path class="head-map" d="M 16 0 L 7 -4.5 L 7 4.5 Z"
+            {% if pos and not pos.error and pos.heading is not none %}
+            transform="translate({{ pos.x }} {{ pos.y }}) rotate({{ pos.heading }})"
+            {% else %}hidden{% endif %}/>
     </svg>
 
     <div class="where">

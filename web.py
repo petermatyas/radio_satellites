@@ -12,6 +12,7 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import amsat_freq
+import countries
 import db
 import orbit
 import refresh as refresh_module
@@ -108,6 +109,16 @@ def host_of(url):
 
 def sstv_module_url():
     return sstv.URL
+
+
+# Az SSTV eseményeknek több forrása van, ezért a "ki jelentette be" nem lehet
+# beégetve. A domainből képezzük, a két ismert forrásnak rövid nevet adva.
+SSTV_SOURCE_NAMES = {"ariss.org": "ARISS", "r4uab.ru": "R4UAB"}
+
+
+def sstv_source_name(source_url):
+    host = host_of(source_url or sstv_module_url())
+    return SSTV_SOURCE_NAMES.get(host, host or "SSTV")
 
 
 AMSAT_HOST = "amsat.org"
@@ -318,6 +329,31 @@ def map_xy(lat, lon):
     return round(lon + 180, 2), round(90 - lat, 2)
 
 
+def map_heading(row, when=None, seconds=60):
+    """A haladási irány szöge a térkép koordinátáiban, fokban.
+
+    A pillanatnyi és a "seconds" másodperccel későbbi hely különbségéből.
+    Azért itt számoljuk, és nem a böngészőben: a ±180. hosszúsági fok
+    átlépését így egy helyen kezeljük, a pályanyom szeletelésétől függetlenül.
+
+    A visszaadott szög közvetlenül SVG rotate()-be tehető: a térkép y tengelye
+    lefelé nő, ahogy a képernyőé is.
+    """
+    now = orbit.position(row, when=when)
+    later = orbit.position(
+        row, when=(when or datetime.now(timezone.utc)) + timedelta(seconds=seconds))
+
+    dlon = later["lon"] - now["lon"]
+    # Dátumvonal: a 179° -> -179° ugrás valójában 2 fok kelet felé.
+    if dlon > 180:
+        dlon -= 360
+    elif dlon < -180:
+        dlon += 360
+
+    # A térképen y = 90 - lat, tehát az északi irány NEGATÍV y.
+    return round(math.degrees(math.atan2(-(later["lat"] - now["lat"]), dlon)), 1)
+
+
 def track_segments(points):
     """Pályanyom térkép-koordinátákban, a dátumvonalnál elvágva.
 
@@ -363,6 +399,8 @@ def live_positions(conn, norad_ids, observer, track=True):
             "el": round(look["el"], 1),
             "range_km": round(look["range_km"]),
             "track": track_segments(points),
+            # A jelölő mellé rajzolt nyíl szöge: merre halad a műhold.
+            "heading": map_heading(row),
             "epoch_age_days": round(age, 1),
             "stale": age > TLE_STALE_DAYS,
         }
@@ -644,7 +682,7 @@ def index():
         # egyszer olvassuk be, és memóriában párosítjuk.
         norads = {r["norad_id"] for r in rows}
         catalog = {r["norad_id"]: r for r in conn.execute(
-            "SELECT norad_id, sat_id, website FROM satellites")}
+            "SELECT norad_id, sat_id, website, countries FROM satellites")}
         transmitters = db.get_transmitter_map(conn, norads)
         frequencies = db.get_frequency_map(conn, norads)
         other_modes = db.get_nonamateur_modes(conn, norads)
@@ -692,6 +730,8 @@ def index():
             # küldetésleírás, pályaadatok — ami a listán nem fér el.
             "info_url": info_url,
             "info_host": info_host,
+            # A katalógusból jövő országkód(ok); a név mellé zászlót rajzolunk.
+            "countries": entry["countries"] if entry else None,
             "sky": sky,
             # Az égbolt-korongon csak akkor van jelölő, ha éppen ez az
             # átvonulás zajlik — máskor a műhold nem ezen az íven jár.
@@ -821,14 +861,15 @@ def events():
         # A bejegyzésbe linkelt doppler-táblázat / sajtóközlemény többet mond,
         # mint a gyűjtőoldal — ha van, arra mutatunk.
         links = [(host_of(row["info_url"]), row["info_url"])] if row["info_url"] else []
-        links.append(("ariss.org", row["source_url"] or sstv_module_url()))
+        source_url = row["source_url"] or sstv_module_url()
+        links.append((host_of(source_url), source_url))
         items.append({
             "kind": "sstv",
             "start": datetime.fromtimestamp(row["start_utc"]),
             "end": datetime.fromtimestamp(row["end_utc"]) if row["end_utc"] else None,
             "starts_in": row["start_utc"] - now,
             "title": row["title"],
-            "who": "ARISS",
+            "who": sstv_source_name(row["source_url"]),
             "norad_id": row["norad_id"],
             "tracked": row["norad_id"] in tracked,
             "details": " · ".join(filter(None, [
@@ -1245,6 +1286,8 @@ def refresh_status():
 app.jinja_env.filters["humanize"] = humanize
 app.jinja_env.filters["humanize_age"] = humanize_age
 app.jinja_env.filters["day_label"] = format_day
+# "RU,US" -> [{code, flag, name}]; a sablon ebbol rajzolja a zaszlokat.
+app.jinja_env.filters["flags"] = countries.badges
 
 
 def main():

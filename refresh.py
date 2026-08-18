@@ -16,6 +16,7 @@ import amsat_freq
 import db
 import hamsat
 import main as n2yo
+import r4uab
 import satnogs
 import sstv
 import tle
@@ -29,6 +30,7 @@ SOURCES = [
     ("amsatfreq", "Frekvenciatáblák (AMSAT)"),
     ("hamsat", "Aktivációk (hams.at)"),
     ("sstv", "SSTV események (ARISS)"),
+    ("r4uab", "SSTV események (R4UAB)"),
     ("tle", "Pályaelemek (Celestrak)"),
 ]
 SOURCE_KEYS = [key for key, _ in SOURCES]
@@ -57,6 +59,9 @@ def _run_source(key, conn):
         new, updated = db.save_sstv_events(conn, events)
         print(f"ARISS: {len(events)} bejegyzés ({new} új, {updated} frissítve)")
         return {"events": len(events)}
+    if key == "r4uab":
+        # Az orosz amatőrműholdak SSTV-kampányai; az ARISS csak az ISS-t adja.
+        return r4uab.collect(conn)
     if key == "tle":
         return tle.collect(conn)
     raise ValueError(f"ismeretlen forrás: {key}")

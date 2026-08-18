@@ -208,6 +208,14 @@
   .name a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line); }
   .name a:hover { color: var(--accent); border-bottom-color: var(--accent); }
   .name .norad { font-weight: 400; font-size: .75rem; color: var(--muted); margin-left: .4rem; }
+  /* Országzászló a név után. Emoji, tehát a betűmérettel együtt nő; a
+     line-height rögzítése kell, mert a zászlójel magasabb a latin betűknél
+     és különben megnövelné a sor magasságát. Windowson a böngésző a két
+     országbetűt rajzolja helyette — ott a letter-spacing tartja olvashatóan. */
+  .name .flag {
+    margin-left: .35rem; font-size: .95em; line-height: 1;
+    letter-spacing: .02em; cursor: help;
+  }
   .meta { font-size: .8125rem; color: var(--muted); }
   .meta .sep { opacity: .4; margin: 0 .4rem; }
   .el { color: var(--text); }
@@ -243,6 +251,14 @@
   .sky .set { fill: none; stroke: var(--muted); stroke-width: .04; }
   .sky .sat-sky, .map .sat-map { fill: var(--hot); }
   .sky .sat-sky[hidden], .map .sat-map[hidden] { display: none; }
+  /* Haladási irány. Ugyanaz a szín, mint a jelölőé: egy jelenség két része.
+     A körvonal a sötét pályanyom fölött is elválasztja a háttértől. */
+  .sky .head-sky, .map .head-map {
+    fill: var(--hot); stroke: var(--panel); stroke-width: .6;
+    paint-order: stroke;
+  }
+  .sky .head-sky { stroke-width: .012; }
+  .sky .head-sky[hidden], .map .head-map[hidden] { display: none; }
 
   .map .sea { fill: var(--bg); }
   .map .land {
@@ -757,15 +773,31 @@ var prefix = {{ request.script_root|tojson }} || '';
     el.removeAttribute('hidden');
   }
 
+  // A haladási irány nyila. A szöget a szerver adja (heading), mert a
+  // ±180. hosszúsági fok átlépését ott kezeljük egy helyen.
+  function aim(el, x, y, heading) {
+    if (!el) return;
+    if (heading === null || heading === undefined) {
+      el.setAttribute('hidden', '');
+      return;
+    }
+    el.setAttribute('transform',
+                    'translate(' + x + ' ' + y + ') rotate(' + heading + ')');
+    el.removeAttribute('hidden');
+  }
+
   function draw(block, p) {
     var map = block.querySelector('.sat-map');
+    var head = block.querySelector('.head-map');
     var where = block.querySelector('.live-where');
     if (!p || p.error) {
       if (map) map.setAttribute('hidden', '');
+      if (head) head.setAttribute('hidden', '');
       if (where) where.textContent = 'nincs pályaelem';
       return;
     }
     place(map, p.x, p.y);
+    aim(head, p.x, p.y, p.heading);
 
     var group = block.querySelector('.path');
     if (group) {
@@ -829,11 +861,30 @@ var prefix = {{ request.script_root|tojson }} || '';
       var t = progress(+svg.getAttribute('data-start'),
                        +svg.getAttribute('data-max'),
                        +svg.getAttribute('data-end'), now);
-      if (t === null) { dot.setAttribute('hidden', ''); return; }
+      if (t === null) {
+        dot.setAttribute('hidden', '');
+        var off = svg.querySelector('.head-sky');
+        if (off) off.setAttribute('hidden', '');
+        return;
+      }
       var u = 1 - t;
-      dot.setAttribute('cx', u * u * a[0] + 2 * u * t * a[2] + t * t * a[4]);
-      dot.setAttribute('cy', u * u * a[1] + 2 * u * t * a[3] + t * t * a[5]);
+      var x = u * u * a[0] + 2 * u * t * a[2] + t * t * a[4];
+      var y = u * u * a[1] + 2 * u * t * a[3] + t * t * a[5];
+      dot.setAttribute('cx', x);
+      dot.setAttribute('cy', y);
       dot.removeAttribute('hidden');
+
+      // Az ív másodfokú Bézier-görbe; a haladási irány az érintője:
+      // B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1).
+      var head = svg.querySelector('.head-sky');
+      if (head) {
+        var dx = 2 * u * (a[2] - a[0]) + 2 * t * (a[4] - a[2]);
+        var dy = 2 * u * (a[3] - a[1]) + 2 * t * (a[5] - a[3]);
+        var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        head.setAttribute('transform',
+                          'translate(' + x + ' ' + y + ') rotate(' + angle + ')');
+        head.removeAttribute('hidden');
+      }
     });
     setTimeout(tick, 5000);
   }
