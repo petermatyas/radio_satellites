@@ -786,6 +786,11 @@ var prefix = {{ request.script_root|tojson }} || '';
     el.removeAttribute('hidden');
   }
 
+  // A jelölő ilyen sűrűn mozog; a pályanyom ennek a TRACK_EVERY-szeresével.
+  var REFRESH_MS = 5000;
+  var TRACK_EVERY = 12;      // 12 * 5 mp = percenként egy teljes lekérdezés
+  var ticks = 0;
+
   function draw(block, p) {
     var map = block.querySelector('.sat-map');
     var head = block.querySelector('.head-map');
@@ -799,10 +804,13 @@ var prefix = {{ request.script_root|tojson }} || '';
     place(map, p.x, p.y);
     aim(head, p.x, p.y, p.heading);
 
-    var group = block.querySelector('.path');
+    // A pályanyomot csak akkor rajzoljuk újra, ha a válasz tartalmazta: a
+    // gyakori pozíciófrissítések ?track=0-val jönnek, és a meglévő nyomot
+    // nem szabad letörölni alóluk.
+    var group = p.track ? block.querySelector('.path') : null;
     if (group) {
       group.textContent = '';
-      (p.track || []).forEach(function (segment) {
+      p.track.forEach(function (segment) {
         var line = document.createElementNS('http://www.w3.org/2000/svg',
                                             'polyline');
         line.setAttribute('points', segment.map(function (xy) {
@@ -820,15 +828,23 @@ var prefix = {{ request.script_root|tojson }} || '';
   }
 
   function tick() {
-    fetch(prefix + '/api/positions?norad=' + norads.join(','))
+    // A pályanyom a válasz négyötöde, de egy 90 perces ablakot rajzol: 5
+    // másodperc alatt észrevehetetlenül változik. Ezért csak minden
+    // TRACK_EVERY-edik körben kérjük le, a többiben a jelölő mozog.
+    var withTrack = (ticks % TRACK_EVERY) === 0;
+    ticks++;
+
+    fetch(prefix + '/api/positions?norad=' + norads.join(',')
+          + (withTrack ? '' : '&track=0'))
       .then(function (r) { return r.json(); })
       .then(function (data) {
         blocks.forEach(function (block) {
           draw(block, data.positions[block.getAttribute('data-norad')]);
         });
-        setTimeout(tick, 30000);
+        setTimeout(tick, REFRESH_MS);
       })
-      .catch(function () { setTimeout(tick, 60000); });
+      // Hiba után ritkítunk, hogy egy leállt backendet ne ostromoljunk.
+      .catch(function () { setTimeout(tick, REFRESH_MS * 4); });
   }
   // Az első kérés azonnal indul: a pályanyom csak innen kerül a térképre.
   setTimeout(tick, 200);

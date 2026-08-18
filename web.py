@@ -398,12 +398,17 @@ def live_positions(conn, norad_ids, observer, track=True):
             "az": round(look["az"], 1),
             "el": round(look["el"], 1),
             "range_km": round(look["range_km"]),
-            "track": track_segments(points),
             # A jelölő mellé rajzolt nyíl szöge: merre halad a műhold.
             "heading": map_heading(row),
             "epoch_age_days": round(age, 1),
             "stale": age > TLE_STALE_DAYS,
         }
+        if track:
+            # Csak kérésre kerül bele. ÜRES listát sem küldünk helyette: a
+            # felület a mező HIÁNYÁBÓL tudja, hogy a meglévő nyomot meg kell
+            # tartania — egy üres lista azt jelentené, hogy nincs nyom, és
+            # letörölné a térképről.
+            positions[norad]["track"] = track_segments(points)
     return positions
 
 
@@ -821,7 +826,10 @@ def api_positions():
         observer = (config["lat"], config["lon"], config["alt"])
         if wanted is None:
             wanted = [norad for norad, _ in db.get_tracked(conn)]
-        positions = live_positions(conn, wanted, observer)
+        # A pályanyom a válasz négyötöde, de 5 másodperc alatt alig változik,
+        # ezért a felület csak ritkán kéri (?track=0 a többi lekérdezésnél).
+        want_track = request.args.get("track", "1") not in ("0", "false", "no")
+        positions = live_positions(conn, wanted, observer, track=want_track)
     finally:
         conn.close()
 
