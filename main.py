@@ -4,6 +4,7 @@ import argparse
 import os
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from dotenv import load_dotenv
@@ -13,6 +14,16 @@ import db
 load_dotenv()
 
 SECONDS_PER_DAY = 86400
+
+# A kiírt időpontok mindig ebben az időzónában jelennek meg, nem a gép/
+# konténer rendszeridőzónájában - szerveren ez tipikusan UTC, ami "helyi idő"
+# helyett tévesen UTC-t mutatna.
+LOCAL_TZ = ZoneInfo("Europe/Budapest")
+
+
+def to_local(ts):
+    """Unix timestamp -> tudatos Europe/Budapest idő."""
+    return datetime.fromtimestamp(ts, tz=LOCAL_TZ)
 
 # A megfigyelő pozíciója és a lekérdezés hossza az adatbázisban van (a webes
 # Beállítások lapról szerkeszthető); ezek csak a végső tartalékértékek.
@@ -85,8 +96,8 @@ def collect(conn, norad_id, observer=None, days=None,
     if day_of(covered) >= day_of(needed_until) and not force:
         if verbose:
             print(f"NORAD {norad_id}: az adatok már megvannak "
-                  f"{datetime.fromtimestamp(covered):%Y-%m-%d %H:%M}-ig, "
-                  f"nincs letöltés (--force felülírja)")
+                  f"{to_local(covered):%Y-%m-%d %H:%M}-ig "
+                  f"({local_tz_label()}), nincs letöltés (--force felülírja)")
         return []
 
     api_key = os.getenv("N2YO_API_KEY")
@@ -187,7 +198,17 @@ def main():
 
 def day_of(ts):
     """Unix time -> az adott (helyi idő szerinti) nap dátuma."""
-    return datetime.fromtimestamp(ts).date()
+    return to_local(ts).date()
+
+
+def local_tz_label():
+    """A megjelenített időpontok időzónájának rövid neve (CET vagy CEST).
+
+    Explicit Europe/Budapest zóna, NEM a futtató gép rendszeridőzónája -
+    utóbbi szerveren (Docker-konténerben) tipikusan UTC, ami "helyi idő"
+    helyett tévesen UTC-t adna.
+    """
+    return datetime.now(LOCAL_TZ).tzname()
 
 
 def row_to_pass(row):
@@ -202,9 +223,13 @@ def row_to_pass(row):
 
 
 def print_passes(passes):
+    passes = list(passes)
+    if not passes:
+        return
+    print(f"Időpontok időzónája: {local_tz_label()}")
     for p in passes:
-        start = datetime.fromtimestamp(p["startUTC"])
-        end = datetime.fromtimestamp(p["endUTC"])
+        start = to_local(p["startUTC"])
+        end = to_local(p["endUTC"])
         print(f"  {start:%Y-%m-%d %H:%M:%S} -> {end:%H:%M:%S} | "
               f"max elev: {p['maxEl']}° | "
               f"{p['startAzCompass']} -> {p['endAzCompass']}")

@@ -7,6 +7,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlparse
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -23,6 +24,21 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 app.config["DB_PATH"] = db.DEFAULT_DB_PATH
 app.config["APPLICATION_ROOT"] = "/sats"
 refresher = refresh_module.Refresher(app.config["DB_PATH"])
+
+# A megjelenített időpontok mindig ebben az időzónában jelennek meg, nem a
+# gép/konténer rendszeridőzónájában - Docker-konténerekben ez tipikusan UTC,
+# ami "helyi idő" helyett tévesen UTC-t mutatna.
+LOCAL_TZ = ZoneInfo("Europe/Budapest")
+
+
+def to_local(value):
+    """Unix timestamp vagy datetime -> tudatos Europe/Budapest idő."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(LOCAL_TZ)
+    return datetime.fromtimestamp(value, tz=LOCAL_TZ)
+
 
 # Ennyi ideig tekintünk egy AMSAT észlelést "friss"-nek.
 ACTIVITY_WINDOW_HOURS = 72
@@ -226,8 +242,8 @@ def format_sstv(row):
     return {
         "title": row["title"],
         "details": " · ".join(parts),
-        "start": datetime.fromtimestamp(row["start_utc"]),
-        "end": datetime.fromtimestamp(row["end_utc"]),
+        "start": to_local(row["start_utc"]),
+        "end": to_local(row["end_utc"]),
         "url": row["info_url"] or row["source_url"],
     }
 
@@ -245,8 +261,8 @@ def format_activation(row):
         "grids": row["grids"],
         "comment": row["comment"],
         "url": row["url"],
-        "start": datetime.fromtimestamp(row["start_utc"]),
-        "end": datetime.fromtimestamp(row["end_utc"]),
+        "start": to_local(row["start_utc"]),
+        "end": to_local(row["end_utc"]),
     }
 
 
@@ -486,8 +502,8 @@ def format_pass(row, now, extras):
     return {
         "norad_id": row["norad_id"],
         "sat_name": row["sat_name"] or f"NORAD {row['norad_id']}",
-        "start": datetime.fromtimestamp(start),
-        "end": datetime.fromtimestamp(end),
+        "start": to_local(start),
+        "end": to_local(end),
         # A jelölő mozgatásához a böngészőnek is kellenek a nyers időpontok.
         "start_utc": start,
         "max_utc": row["max_utc"],
@@ -806,7 +822,7 @@ def index():
         observer=observer,
         positions=positions,
         observer_xy=map_xy(observer[0], observer[1]),
-        now=datetime.fromtimestamp(now),
+        now=to_local(now),
     )
 
 
@@ -873,8 +889,8 @@ def events():
         links.append((host_of(source_url), source_url))
         items.append({
             "kind": "sstv",
-            "start": datetime.fromtimestamp(row["start_utc"]),
-            "end": datetime.fromtimestamp(row["end_utc"]) if row["end_utc"] else None,
+            "start": to_local(row["start_utc"]),
+            "end": to_local(row["end_utc"]) if row["end_utc"] else None,
             "starts_in": row["start_utc"] - now,
             "title": row["title"],
             "who": sstv_source_name(row["source_url"]),
@@ -893,8 +909,8 @@ def events():
             links.append(("SatNOGS", satnogs_url(None, row["norad_id"])))
         items.append({
             "kind": "rove",
-            "start": datetime.fromtimestamp(row["start_utc"]),
-            "end": datetime.fromtimestamp(row["end_utc"]),
+            "start": to_local(row["start_utc"]),
+            "end": to_local(row["end_utc"]),
             "starts_in": row["start_utc"] - now,
             "title": row["sat_name"] or f"NORAD {row['norad_id']}",
             "who": row["callsign"],
@@ -914,7 +930,7 @@ def events():
         items = [i for i in items if i["kind"] == kind]
     return render_template("events.html", items=items, kind=kind,
                            counts=counts, total=sum(counts.values()),
-                           now=datetime.fromtimestamp(now))
+                           now=to_local(now))
 
 
 @app.route("/satellites")
@@ -1091,8 +1107,10 @@ def reports(norad_id):
         items.append({
             "utc": when,
             # Az AMSAT UTC-ben jelent; helyi időben is kiírjuk, hogy az
-            # átvonulás-listával összevethető legyen.
-            "local": when.replace(tzinfo=timezone.utc).astimezone(),
+            # átvonulás-listával összevethető legyen. Explicit Europe/Budapest
+            # zóna kell (nem sima .astimezone()), mert a konténer
+            # rendszeridőzónája tipikusan UTC.
+            "local": to_local(when),
             "callsign": row["callsign"],
             "grid": row["grid_square"],
             "activity": row["activity"] or row["display_name"],

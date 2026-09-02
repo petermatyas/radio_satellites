@@ -12,7 +12,7 @@
       {{ total }} átvonulás
       {%- if sstv_count %}, <strong style="color:var(--sstv)">{{ sstv_count }} SSTV alatt</strong>{% endif %}
       {%- if rove_count %}, <strong style="color:var(--rove)">{{ rove_count }} bejelentett aktivitás</strong>{% endif %}
-      &middot; frissítve {{ now.strftime('%Y-%m-%d %H:%M') }}
+      &middot; frissítve {{ now.strftime('%Y-%m-%d %H:%M') }} (helyi idő, {{ now.tzname() }})
       <br>
       <a href="{{ request.script_root }}/settings">{{ '%.4f'|format(observer[0]) }},
         {{ '%.4f'|format(observer[1]) }}</a> pozícióra

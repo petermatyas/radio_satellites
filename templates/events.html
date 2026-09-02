@@ -8,7 +8,7 @@
     <div class="sub">
       {{ items|length }}{% if kind %} / {{ total }}{% endif %} esemény &middot;
       ARISS SSTV kampányok és hams.at aktivációk &middot;
-      frissítve {{ now.strftime('%Y-%m-%d %H:%M') }}
+      frissítve {{ now.strftime('%Y-%m-%d %H:%M') }} (helyi idő, {{ now.tzname() }})
     </div>
   </header>
 
