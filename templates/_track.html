@@ -68,5 +68,10 @@
         <span class="live-where">nincs pályaelem</span>
       {%- endif -%}
     </div>
+
+    {# Csak akkor jelenik meg, ha a base.html szkriptje ténylegesen talált
+       működő tájoló-szenzort az eszközön — enélkül a gomb rejtve marad. #}
+    <button type="button" class="aim-btn" data-norad="{{ p.norad_id }}"
+            data-sat="{{ p.sat_name|e }}" hidden>🧭 Antenna irányzás</button>
   </div>
 {% endmacro %}

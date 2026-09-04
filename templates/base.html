@@ -309,6 +309,65 @@
   }
   .zoom-backdrop[hidden] { display: none; }
 
+  /* Antenna-irányzás gomb a kártyán. Alapból rejtett: a base.html szkriptje
+     csak akkor mutatja meg, ha ténylegesen talált működő tájoló-szenzort. */
+  .aim-btn {
+    margin-top: .5rem; padding: .3rem .7rem; border-radius: 999px;
+    border: 1px solid var(--accent-line); background: var(--accent-bg);
+    color: var(--accent); font-size: .8125rem; font-weight: 600; cursor: pointer;
+  }
+  .aim-btn:hover { background: var(--accent-bg-hover); }
+
+  /* A modál a zoom-backdroppal azonos mintát követi, de saját, magasabb
+     rétegben (70+), hogy sose ütközzön egy épp nagyított grafikával. */
+  .aim-backdrop {
+    position: fixed; inset: 0; z-index: 70; background: var(--backdrop);
+  }
+  .aim-backdrop[hidden] { display: none; }
+  .aim-modal {
+    position: fixed; z-index: 71; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(92vw, 26rem); max-height: 88vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 1rem 1.1rem 1.25rem;
+  }
+  .aim-modal[hidden] { display: none; }
+  .aim-head { display: flex; align-items: center; justify-content: space-between; }
+  .aim-head strong { font-size: 1rem; }
+  .aim-sat { color: var(--muted); font-size: .8125rem; margin-top: .1rem; }
+  .aim-row { margin-top: .9rem; }
+  .aim-label {
+    display: block; font-size: .75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: .4rem;
+  }
+  .aim-types { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .aim-offset-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+  .aim-offset-row label { font-size: .8125rem; color: var(--muted); }
+  .aim-offset-row input {
+    width: 4.5rem; padding: .3rem .4rem; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    font: inherit; text-align: right;
+  }
+  .aim-omni-note {
+    margin-top: .9rem; padding: .6rem .75rem; border-radius: 8px;
+    background: var(--muted-bg); color: var(--text); font-size: .8125rem;
+  }
+  .aim-live { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+  .aim-sky { width: 9.5rem; height: 9.2rem; flex: none; }
+  .aim-sky .antenna-heading {
+    stroke: var(--accent); stroke-width: .045; stroke-linecap: round;
+  }
+  .aim-sky .antenna-heading[hidden] { display: none; }
+  .aim-readout { min-width: 0; }
+  .aim-turn { font-size: 1.05rem; font-weight: 700; }
+  .aim-el { font-size: .875rem; color: var(--muted); margin-top: .2rem; }
+  .aim-enable { margin-top: 1rem; width: 100%; }
+  .aim-permission-note {
+    margin-top: .9rem; padding: .6rem .75rem; border-radius: 8px;
+    background: var(--hot-bg); border: 1px solid var(--hot-line);
+    color: var(--hot); font-size: .8125rem;
+  }
+
   .tag {
     display: inline-flex; align-items: center; gap: .35rem;
     margin: .375rem .375rem 0 0; padding: .2rem .55rem;
@@ -636,6 +695,52 @@
 
 <div class="zoom-backdrop" hidden></div>
 
+{# Antenna-irányzás modál. Egyetlen példány van (mint a zoom-backdropnál),
+   a JS tölti fel az épp kiválasztott átvonulás adataival. #}
+<div class="aim-backdrop" hidden></div>
+<div class="aim-modal" hidden role="dialog" aria-modal="true" aria-labelledby="aim-title">
+  <div class="aim-head">
+    <strong id="aim-title">Antenna irányzás</strong>
+    <button type="button" class="ghost aim-close" aria-label="Bezárás">✕</button>
+  </div>
+  <div class="aim-sat"></div>
+
+  <div class="aim-row">
+    <span class="aim-label">Antenna típusa</span>
+    <div class="aim-types">
+      <button type="button" class="chip aim-type" data-type="yagi">Yagi</button>
+      <button type="button" class="chip aim-type" data-type="moxon">Moxon</button>
+      <button type="button" class="chip aim-type" data-type="omni">Körsugárzó</button>
+    </div>
+  </div>
+
+  <div class="aim-row aim-offset-row">
+    <label for="aim-offset">Eltérés a telefon és az antenna iránya közt (°)</label>
+    <input type="number" id="aim-offset" step="1" min="-180" max="180" value="0">
+  </div>
+
+  <p class="aim-omni-note" hidden>
+    Ez az antennatípus nem irányított — nem kell forgatni, minden irányból egyformán vesz.
+  </p>
+
+  <div class="aim-live">
+    <svg class="sky aim-sky" viewBox="-1.55 -1.5 3.1 3">
+      <use href="#skygrid"/>
+      <circle class="sat-sky" r="0.11" hidden/>
+      <line class="antenna-heading" x1="0" y1="0" x2="0" y2="-1" hidden/>
+    </svg>
+    <div class="aim-readout">
+      <div class="aim-turn">—</div>
+      <div class="aim-el">—</div>
+    </div>
+  </div>
+
+  <button type="button" class="act aim-enable" hidden>🧭 Iránytű engedélyezése</button>
+  <p class="aim-permission-note" hidden>
+    Nem sikerült elérni az iránytűt ezen az eszközön.
+  </p>
+</div>
+
 <script>
 var prefix = {{ request.script_root|tojson }} || '';
 
@@ -707,6 +812,246 @@ var prefix = {{ request.script_root|tojson }} || '';
     if (!el || !el.matches || !el.matches('.track svg')) return;
     e.preventDefault();
     if (el === current) { close(); } else { open(el); }
+  });
+})();
+
+// Antenna-irányzás: a telefon tájoló-szenzoraiból (DeviceOrientationEvent)
+// kiolvassuk, merre néz az antenna (a beállított eltéréssel korrigálva), és
+// a #skygrid korongon megmutatjuk, hogy a műhold pillanatnyi irányához (élő
+// /api/positions lekérdezésből) képest merre kell fordulni.
+//
+// A gombok alapból rejtve vannak: csak akkor jelennek meg, ha ez a modul
+// ténylegesen talált működő szenzort. iOS-en (ahol a szenzor csak explicit,
+// felhasználói gesztusból induló engedélykéréssel érhető el) nem tudjuk ezt
+// előre eldönteni, ezért ott a gombok megjelennek, és a modál nyitásakor
+// kérjük az engedélyt — ha az sem hoz valós adatot, a modálban jelezzük.
+(function () {
+  var aimButtons = Array.prototype.slice.call(document.querySelectorAll('.aim-btn'));
+  if (!aimButtons.length) return;
+
+  function revealButtons() {
+    aimButtons.forEach(function (b) { b.hidden = false; });
+  }
+
+  var iosGated = typeof DeviceOrientationEvent !== 'undefined'
+    && typeof DeviceOrientationEvent.requestPermission === 'function';
+
+  if (typeof DeviceOrientationEvent === 'undefined') {
+    return; // nincs ilyen API az eszközön/böngészőben — a gombok rejtve maradnak
+  }
+  if (iosGated) {
+    revealButtons();
+  } else {
+    // Android/asztali: rövid próba-figyelés, hátha tényleg jön valós adat
+    // (asztali böngészők gyakran definiálják az eseményt, de sosem tüzelik).
+    var probeDone = false;
+    function onProbe(e) {
+      if (probeDone) return;
+      if (e.alpha !== null || typeof e.webkitCompassHeading === 'number') {
+        probeDone = true;
+        revealButtons();
+      }
+    }
+    window.addEventListener('deviceorientationabsolute', onProbe);
+    window.addEventListener('deviceorientation', onProbe);
+    setTimeout(function () {
+      window.removeEventListener('deviceorientationabsolute', onProbe);
+      window.removeEventListener('deviceorientation', onProbe);
+    }, 1500);
+  }
+
+  // --- Modál elemek ---
+  var backdrop = document.querySelector('.aim-backdrop');
+  var modal = document.querySelector('.aim-modal');
+  if (!backdrop || !modal) return;
+  var closeBtn = modal.querySelector('.aim-close');
+  var satLabel = modal.querySelector('.aim-sat');
+  var typeButtons = Array.prototype.slice.call(modal.querySelectorAll('.aim-type'));
+  var offsetInput = modal.querySelector('#aim-offset');
+  var omniNote = modal.querySelector('.aim-omni-note');
+  var liveBox = modal.querySelector('.aim-live');
+  var enableBtn = modal.querySelector('.aim-enable');
+  var permNote = modal.querySelector('.aim-permission-note');
+  var satDot = modal.querySelector('.sat-sky');
+  var headingLine = modal.querySelector('.antenna-heading');
+  var turnText = modal.querySelector('.aim-turn');
+  var elText = modal.querySelector('.aim-el');
+
+  var STORE_TYPE = 'aimAntennaType', STORE_OFFSET = 'aimOffset';
+  function loadPref(key, fallback) {
+    try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
+  }
+  function savePref(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* privát mód */ }
+  }
+
+  var activeNorad = null, pollTimer = null, currentHeading = null,
+      currentEl = null, targetAz = null;
+
+  // Azimut+magasság -> pont a #skygrid korongon (a szerver sky_point()
+  // függvényével azonos képlet — lásd web.py).
+  function skyXY(az, el) {
+    var r = Math.max(0, Math.min(1, (90 - el) / 90));
+    var a = az * Math.PI / 180;
+    return [r * Math.sin(a), -r * Math.cos(a)];
+  }
+
+  function setAntennaType(type) {
+    savePref(STORE_TYPE, type);
+    typeButtons.forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-type') === type);
+    });
+    var isOmni = type === 'omni';
+    omniNote.hidden = !isOmni;
+    liveBox.hidden = isOmni;
+  }
+
+  typeButtons.forEach(function (b) {
+    b.addEventListener('click', function () { setAntennaType(b.getAttribute('data-type')); });
+  });
+
+  offsetInput.addEventListener('change', function () {
+    var v = parseFloat(offsetInput.value);
+    savePref(STORE_OFFSET, isNaN(v) ? '0' : String(v));
+  });
+
+  // --- Kompasz-irány kiolvasása ---
+  function compassHeadingFrom(event) {
+    if (typeof event.webkitCompassHeading === 'number') return event.webkitCompassHeading;
+    if (event.alpha !== null && (event.absolute || event.type === 'deviceorientationabsolute')) {
+      return (360 - event.alpha) % 360;
+    }
+    return null;
+  }
+
+  function onOrientation(event) {
+    var heading = compassHeadingFrom(event);
+    if (heading === null) return;
+    var offset = parseFloat(offsetInput.value) || 0;
+    currentHeading = (heading + offset + 360) % 360;
+    render();
+  }
+
+  var listening = false;
+  function startListening() {
+    if (listening) return;
+    listening = true;
+    window.addEventListener('deviceorientationabsolute', onOrientation);
+    window.addEventListener('deviceorientation', onOrientation);
+  }
+  function stopListening() {
+    if (!listening) return;
+    listening = false;
+    window.removeEventListener('deviceorientationabsolute', onOrientation);
+    window.removeEventListener('deviceorientation', onOrientation);
+  }
+
+  function render() {
+    if (currentHeading === null) return;
+    headingLine.setAttribute('transform', 'rotate(' + currentHeading + ')');
+    headingLine.hidden = false;
+
+    if (currentEl === null) {
+      turnText.textContent = 'Műhold pozíciójára várunk…';
+      elText.textContent = '';
+      return;
+    }
+    if (targetAz === null) return;
+    var delta = ((targetAz - currentHeading + 540) % 360) - 180;
+    if (currentEl < 0) {
+      turnText.textContent = 'A műhold a horizont alatt van';
+    } else if (Math.abs(delta) < 5) {
+      turnText.textContent = '✅ Jó irányban állsz!';
+    } else if (delta > 0) {
+      turnText.textContent = 'Fordulj ' + Math.round(delta) + '°-ot jobbra';
+    } else {
+      turnText.textContent = 'Fordulj ' + Math.round(-delta) + '°-ot balra';
+    }
+    elText.textContent = 'Emelkedés: ' + Math.round(currentEl) + '°'
+      + (currentEl < 0 ? ' (a horizont alatt)' : '');
+  }
+
+  function poll() {
+    if (!activeNorad) return;
+    fetch(prefix + '/api/positions?norad=' + activeNorad + '&track=0')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var p = data.positions[activeNorad];
+        if (!p || p.error) { return; }
+        targetAz = p.az;
+        currentEl = p.el;
+        var xy = skyXY(p.az, p.el);
+        satDot.setAttribute('cx', xy[0]);
+        satDot.setAttribute('cy', xy[1]);
+        satDot.hidden = false;
+        render();
+        pollTimer = setTimeout(poll, 3000);
+      })
+      .catch(function () { pollTimer = setTimeout(poll, 8000); });
+  }
+
+  function requestSensor(cb) {
+    if (iosGated) {
+      DeviceOrientationEvent.requestPermission().then(function (state) {
+        cb(state === 'granted');
+      }).catch(function () { cb(false); });
+    } else {
+      cb(true);
+    }
+  }
+
+  function openModal(btn) {
+    activeNorad = btn.getAttribute('data-norad');
+    satLabel.textContent = btn.getAttribute('data-sat') || '';
+    currentHeading = null; currentEl = null; targetAz = null;
+    satDot.hidden = true; headingLine.hidden = true;
+    turnText.textContent = 'Várunk a tájoló adataira…';
+    elText.textContent = '';
+    permNote.hidden = true;
+    offsetInput.value = loadPref(STORE_OFFSET, '0');
+    setAntennaType(loadPref(STORE_TYPE, 'yagi'));
+
+    backdrop.hidden = false;
+    modal.hidden = false;
+
+    requestSensor(function (granted) {
+      if (!granted) {
+        enableBtn.hidden = true;
+        permNote.hidden = false;
+        return;
+      }
+      enableBtn.hidden = true;
+      startListening();
+      // Ha 3 mp alatt sem jött valós adat, feltehetően nincs szenzor.
+      setTimeout(function () {
+        if (currentHeading === null) { permNote.hidden = false; }
+      }, 3000);
+    });
+    poll();
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    backdrop.hidden = true;
+    stopListening();
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    activeNorad = null;
+  }
+
+  enableBtn.addEventListener('click', function () {
+    requestSensor(function (granted) {
+      if (granted) { enableBtn.hidden = true; permNote.hidden = true; startListening(); }
+      else { permNote.hidden = false; }
+    });
+  });
+
+  aimButtons.forEach(function (b) {
+    b.addEventListener('click', function () { openModal(b); });
+  });
+  closeBtn.addEventListener('click', closeModal);
+  backdrop.addEventListener('click', closeModal);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.hidden) closeModal();
   });
 })();
 
