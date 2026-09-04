@@ -765,6 +765,38 @@
     </p>
   </div>
 
+  <div class="aim-row aim-offset-row aim-offset-row-v">
+    <span class="aim-label">Antenna dőlése a telefonhoz képest</span>
+    <div class="aim-offset-wrap">
+      <svg class="aim-offset-dial aim-offset-dial-v" viewBox="-1.2 -1.2 2.4 2.4" role="slider"
+           aria-label="Antenna dőlésszöge a telefon dőléséhez képest"
+           aria-valuemin="-180" aria-valuemax="180" aria-valuenow="0" tabindex="0">
+        <circle class="dial-ring" r="0.95"/>
+        <rect class="dial-phone" x="-0.14" y="-1.08" width="0.28" height="0.5" rx="0.05"/>
+        <g class="dial-needle">
+          <line x1="0" y1="0" x2="0" y2="-0.82"/>
+          <path class="dial-antenna-glyph" d="M -0.17 -0.6 H 0.17 M -0.12 -0.71 H 0.12 M -0.06 -0.82 H 0.06"/>
+        </g>
+        <circle class="dial-hub" r="0.05"/>
+      </svg>
+      <div class="aim-offset-side">
+        <div class="aim-offset-readout">
+          <input type="number" id="aim-offset-v" step="1" min="-180" max="180" value="0"
+                 aria-label="Antenna dőlésszöge fokban a telefon dőléséhez képest">
+          <span>°</span>
+        </div>
+        <div class="aim-offset-legend">
+          <span><i class="dial-dot dial-dot-phone"></i>telefon dőlése</span>
+          <span><i class="dial-dot dial-dot-antenna"></i>antenna dőlése</span>
+        </div>
+      </div>
+    </div>
+    <p class="aim-offset-hint">
+      Ha az antenna nem pontosan a telefonnal egy síkban dől (pl. máshogy van
+      felszerelve), itt állítható be a függőleges (dőlésszög) eltérés is.
+    </p>
+  </div>
+
   <p class="aim-omni-note" hidden>
     Ez az antennatípus nem irányított — nem kell forgatni, minden irányból egyformán vesz.
   </p>
@@ -913,10 +945,13 @@ var prefix = {{ request.script_root|tojson }} || '';
   var closeBtn = modal.querySelector('.aim-close');
   var satLabel = modal.querySelector('.aim-sat');
   var typeButtons = Array.prototype.slice.call(modal.querySelectorAll('.aim-type'));
-  var offsetRow = modal.querySelector('.aim-offset-row');
+  var offsetRows = Array.prototype.slice.call(modal.querySelectorAll('.aim-offset-row'));
   var offsetInput = modal.querySelector('#aim-offset');
-  var offsetDial = modal.querySelector('.aim-offset-dial');
-  var offsetNeedle = modal.querySelector('.dial-needle');
+  var offsetDial = modal.querySelector('.aim-offset-dial:not(.aim-offset-dial-v)');
+  var offsetNeedle = offsetDial.querySelector('.dial-needle');
+  var offsetInputV = modal.querySelector('#aim-offset-v');
+  var offsetDialV = modal.querySelector('.aim-offset-dial-v');
+  var offsetNeedleV = offsetDialV.querySelector('.dial-needle');
   var omniNote = modal.querySelector('.aim-omni-note');
   var liveBox = modal.querySelector('.aim-live');
   var enableBtn = modal.querySelector('.aim-enable');
@@ -926,7 +961,7 @@ var prefix = {{ request.script_root|tojson }} || '';
   var turnText = modal.querySelector('.aim-turn');
   var elText = modal.querySelector('.aim-el');
 
-  var STORE_TYPE = 'aimAntennaType', STORE_OFFSET = 'aimOffset';
+  var STORE_TYPE = 'aimAntennaType', STORE_OFFSET = 'aimOffset', STORE_OFFSET_V = 'aimOffsetV';
   function loadPref(key, fallback) {
     try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
   }
@@ -935,7 +970,8 @@ var prefix = {{ request.script_root|tojson }} || '';
   }
 
   var activeNorad = null, pollTimer = null, currentHeading = null,
-      currentEl = null, targetAz = null, lastRawHeading = null;
+      currentEl = null, targetAz = null, lastRawHeading = null,
+      currentTilt = null, lastRawTilt = null;
 
   // Azimut+magasság -> pont a #skygrid korongon (a szerver sky_point()
   // függvényével azonos képlet — lásd web.py).
@@ -953,7 +989,7 @@ var prefix = {{ request.script_root|tojson }} || '';
     var isOmni = type === 'omni';
     omniNote.hidden = !isOmni;
     liveBox.hidden = isOmni;
-    offsetRow.hidden = isOmni;
+    offsetRows.forEach(function (row) { row.hidden = isOmni; });
   }
 
   typeButtons.forEach(function (b) {
@@ -961,60 +997,73 @@ var prefix = {{ request.script_root|tojson }} || '';
   });
 
   // --- Telefon/antenna szögeltérés: húzható dial + szám-mező, egymással
-  // szinkronban. A dial mutatója fent (0°-nál) áll, ha az antenna pontosan
-  // arra néz, amerre a telefon teteje; forgatva jelzi az eltérést.
-  function applyOffsetToUI(value) {
-    offsetInput.value = value;
-    offsetNeedle.setAttribute('transform', 'rotate(' + value + ')');
-    offsetDial.setAttribute('aria-valuenow', String(value));
-  }
-
-  function setOffset(value) {
-    value = Math.max(-180, Math.min(180, Math.round(value)));
-    applyOffsetToUI(value);
-    savePref(STORE_OFFSET, String(value));
-    if (lastRawHeading !== null) {
-      currentHeading = (lastRawHeading + value + 360) % 360;
-      render();
+  // szinkronban. Egy-egy ilyen pár van a vízszintes (irány) és a függőleges
+  // (dőlésszög) eltérésnek — mindkettő ugyanazt a mintát követi: a dial
+  // mutatója fent (0°-nál) áll, ha az antenna pontosan úgy néz, mint a
+  // telefon; elforgatva jelzi az eltérést köztük.
+  function makeOffsetControl(dial, needle, input, storeKey, onChange) {
+    function applyToUI(value) {
+      input.value = value;
+      needle.setAttribute('transform', 'rotate(' + value + ')');
+      dial.setAttribute('aria-valuenow', String(value));
     }
-  }
+    function set(value) {
+      value = Math.max(-180, Math.min(180, Math.round(value)));
+      applyToUI(value);
+      savePref(storeKey, String(value));
+      onChange(value);
+    }
 
-  offsetInput.addEventListener('change', function () {
-    var v = parseFloat(offsetInput.value);
-    setOffset(isNaN(v) ? 0 : v);
-  });
+    input.addEventListener('change', function () {
+      var v = parseFloat(input.value);
+      set(isNaN(v) ? 0 : v);
+    });
 
-  (function () {
     var dragging = false;
     function angleFromEvent(e) {
-      var rect = offsetDial.getBoundingClientRect();
+      var rect = dial.getBoundingClientRect();
       var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
       var dx = e.clientX - cx, dy = e.clientY - cy;
       return Math.atan2(dx, -dy) * 180 / Math.PI;
     }
-    offsetDial.addEventListener('pointerdown', function (e) {
+    dial.addEventListener('pointerdown', function (e) {
       dragging = true;
-      offsetDial.setPointerCapture(e.pointerId);
-      setOffset(angleFromEvent(e));
+      dial.setPointerCapture(e.pointerId);
+      set(angleFromEvent(e));
     });
-    offsetDial.addEventListener('pointermove', function (e) {
+    dial.addEventListener('pointermove', function (e) {
       if (!dragging) return;
-      setOffset(angleFromEvent(e));
+      set(angleFromEvent(e));
     });
     function stopDrag(e) {
       if (!dragging) return;
       dragging = false;
-      try { offsetDial.releasePointerCapture(e.pointerId); } catch (err) { /* no-op */ }
+      try { dial.releasePointerCapture(e.pointerId); } catch (err) { /* no-op */ }
     }
-    offsetDial.addEventListener('pointerup', stopDrag);
-    offsetDial.addEventListener('pointercancel', stopDrag);
-    offsetDial.addEventListener('keydown', function (e) {
+    dial.addEventListener('pointerup', stopDrag);
+    dial.addEventListener('pointercancel', stopDrag);
+    dial.addEventListener('keydown', function (e) {
       var step = e.shiftKey ? 15 : 1;
-      var cur = parseFloat(offsetInput.value) || 0;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { setOffset(cur + step); e.preventDefault(); }
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { setOffset(cur - step); e.preventDefault(); }
+      var cur = parseFloat(input.value) || 0;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { set(cur + step); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { set(cur - step); e.preventDefault(); }
     });
-  })();
+
+    return { applyToUI: applyToUI, set: set };
+  }
+
+  var azOffset = makeOffsetControl(offsetDial, offsetNeedle, offsetInput, STORE_OFFSET, function (value) {
+    if (lastRawHeading !== null) {
+      currentHeading = (lastRawHeading + value + 360) % 360;
+      render();
+    }
+  });
+  var elOffset = makeOffsetControl(offsetDialV, offsetNeedleV, offsetInputV, STORE_OFFSET_V, function (value) {
+    if (lastRawTilt !== null) {
+      currentTilt = Math.max(-90, Math.min(90, lastRawTilt + value));
+      render();
+    }
+  });
 
   // --- Kompasz-irány kiolvasása ---
   function compassHeadingFrom(event) {
@@ -1031,6 +1080,16 @@ var prefix = {{ request.script_root|tojson }} || '';
     lastRawHeading = heading;
     var offset = parseFloat(offsetInput.value) || 0;
     currentHeading = (heading + offset + 360) % 360;
+
+    // A telefon "teteje" (a kompasz-iránnyal azonos tengely) dőlésszöge a
+    // vízszinteshez képest matematikailag megegyezik a beta szenzorértékkel,
+    // függetlenül a gammától és az alfától — nem kell külön számolni vele.
+    if (typeof event.beta === 'number') {
+      lastRawTilt = event.beta;
+      var offsetV = parseFloat(offsetInputV.value) || 0;
+      currentTilt = Math.max(-90, Math.min(90, event.beta + offsetV));
+    }
+
     render();
   }
 
@@ -1050,6 +1109,11 @@ var prefix = {{ request.script_root|tojson }} || '';
 
   function render() {
     if (currentHeading === null) return;
+    // A mutató hossza a telefon aktuális dőlésétől függ (ugyanaz a sugár-
+    // képlet, mint a műhold pontjánál) — ha dőlés-adat nincs, teljes
+    // hosszúságú marad, és csak az irányt (azimutot) mutatja.
+    var tiltR = currentTilt === null ? 1 : Math.max(0, Math.min(1, (90 - currentTilt) / 90));
+    headingLine.setAttribute('y2', String(-tiltR));
     headingLine.setAttribute('transform', 'rotate(' + currentHeading + ')');
     headingLine.hidden = false;
 
@@ -1059,18 +1123,34 @@ var prefix = {{ request.script_root|tojson }} || '';
       return;
     }
     if (targetAz === null) return;
-    var delta = ((targetAz - currentHeading + 540) % 360) - 180;
+
     if (currentEl < 0) {
       turnText.textContent = 'A műhold a horizont alatt van';
-    } else if (Math.abs(delta) < 5) {
-      turnText.textContent = '✅ Jó irányban állsz!';
-    } else if (delta > 0) {
-      turnText.textContent = 'Fordulj ' + Math.round(delta) + '°-ot jobbra';
-    } else {
-      turnText.textContent = 'Fordulj ' + Math.round(-delta) + '°-ot balra';
+      elText.textContent = '';
+      return;
     }
-    elText.textContent = 'Emelkedés: ' + Math.round(currentEl) + '°'
-      + (currentEl < 0 ? ' (a horizont alatt)' : '');
+
+    var azDelta = ((targetAz - currentHeading + 540) % 360) - 180;
+    if (Math.abs(azDelta) < 5) {
+      turnText.textContent = '✅ Jó irányban állsz!';
+    } else if (azDelta > 0) {
+      turnText.textContent = 'Fordulj ' + Math.round(azDelta) + '°-ot jobbra';
+    } else {
+      turnText.textContent = 'Fordulj ' + Math.round(-azDelta) + '°-ot balra';
+    }
+
+    if (currentTilt === null) {
+      elText.textContent = 'Emelkedés: ' + Math.round(currentEl) + '°';
+      return;
+    }
+    var elDelta = currentEl - currentTilt;
+    if (Math.abs(elDelta) < 5) {
+      elText.textContent = '✅ Jó dőlésben állsz! (emelkedés: ' + Math.round(currentEl) + '°)';
+    } else if (elDelta > 0) {
+      elText.textContent = 'Döntsd ' + Math.round(elDelta) + '°-kal feljebb (cél: ' + Math.round(currentEl) + '°)';
+    } else {
+      elText.textContent = 'Döntsd ' + Math.round(-elDelta) + '°-kal lejjebb (cél: ' + Math.round(currentEl) + '°)';
+    }
   }
 
   function poll() {
@@ -1106,11 +1186,13 @@ var prefix = {{ request.script_root|tojson }} || '';
     activeNorad = btn.getAttribute('data-norad');
     satLabel.textContent = btn.getAttribute('data-sat') || '';
     currentHeading = null; currentEl = null; targetAz = null; lastRawHeading = null;
+    currentTilt = null; lastRawTilt = null;
     satDot.hidden = true; headingLine.hidden = true;
     turnText.textContent = 'Várunk a tájoló adataira…';
     elText.textContent = '';
     permNote.hidden = true;
-    applyOffsetToUI(parseFloat(loadPref(STORE_OFFSET, '0')) || 0);
+    azOffset.applyToUI(parseFloat(loadPref(STORE_OFFSET, '0')) || 0);
+    elOffset.applyToUI(parseFloat(loadPref(STORE_OFFSET_V, '0')) || 0);
     setAntennaType(loadPref(STORE_TYPE, 'yagi'));
 
     backdrop.hidden = false;
