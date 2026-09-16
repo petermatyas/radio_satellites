@@ -61,7 +61,7 @@ def collect(conn, verbose=True):
         print(f"hams.at: {len(alerts)} bejelentett aktiváció "
               f"({new} új, {updated} frissítve)")
         for a in alerts[:10]:
-            when = (datetime.fromtimestamp(a["start_utc"]).strftime("%m-%d %H:%M")
+            when = (datetime.fromtimestamp(a["start_utc"], tz=timezone.utc).strftime("%m-%d %H:%M UTC")
                     if a["start_utc"] else "?")
             print(f"  {when}  {a['sat_name']:<12} {a['callsign']:<8} "
                   f"{a['mode'] or '?':<6} {a['mhz'] or '?'} MHz  {a['grids'] or ''}")

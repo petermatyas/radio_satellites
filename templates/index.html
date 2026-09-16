@@ -66,6 +66,7 @@
           <div class="time">
             <span class="start">{{ p.start.strftime('%H:%M') }}</span>
             <span class="end">{{ p.end.strftime('%H:%M') }}</span>
+            <span class="tz">helyi</span>
           </div>
           <div>
             <div class="name">
@@ -100,7 +101,7 @@
               <div class="note">
                 {{ p.sstv.title }}
                 &mdash; {{ p.sstv.start.strftime('%m-%d %H:%M') }}
-                &ndash; {{ p.sstv.end.strftime('%m-%d %H:%M') }}
+                &ndash; {{ p.sstv.end.strftime('%m-%d %H:%M') }} (helyi)
               </div>
             {% endif %}
 
