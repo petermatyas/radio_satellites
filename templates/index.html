@@ -141,7 +141,7 @@
               {% endfor %}
             </div>
           </div>
-          <div class="countdown">
+          <div class="countdown" data-start="{{ p.start_utc }}" data-end="{{ p.end_utc }}">
             {{ 'ÉPPEN MOST' if p.in_progress else p.starts_in|humanize }}
           </div>
         </div>
