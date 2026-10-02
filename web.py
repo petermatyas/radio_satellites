@@ -388,6 +388,22 @@ def track_segments(points):
     return [s for s in segments if len(s) > 1]
 
 
+def pass_track_points(tle_row, start_ts, end_ts):
+    """A kelés és a nyugvás közt bejárt pályaszakasz, SVG polyline pontokként.
+
+    A "hol jár most" nyomtól eltérően ez csak egyszer, az oldal
+    betöltésekor számolódik: az adott átvonulás rögzített időablakát rajzolja
+    ki, nem egy mindig "most" körüli, mozgó ablakot.
+    """
+    duration_min = max((end_ts - start_ts) / 60, 0.1)
+    step = max(duration_min / 20, 0.1)
+    start = datetime.fromtimestamp(start_ts, timezone.utc)
+    points = orbit.ground_track(tle_row, when=start, minutes_before=0,
+                                minutes_after=duration_min, step_minutes=step)
+    return [" ".join(f"{x:g},{y:g}" for x, y in segment)
+            for segment in track_segments(points)]
+
+
 def live_positions(conn, norad_ids, observer, track=True):
     """NORAD ID -> hol jár most a műhold, és merről látszik.
 
@@ -704,6 +720,7 @@ def index():
         norads = {r["norad_id"] for r in rows}
         catalog = {r["norad_id"]: r for r in conn.execute(
             "SELECT norad_id, sat_id, website, countries FROM satellites")}
+        tle_map = db.get_tle_map(conn, norads)
         transmitters = db.get_transmitter_map(conn, norads)
         frequencies = db.get_frequency_map(conn, norads)
         other_modes = db.get_nonamateur_modes(conn, norads)
@@ -730,6 +747,12 @@ def index():
         freqs = [format_frequency(f) for f in frequencies.get(sat, [])]
         amsat_main, amsat_extra = amsat_links(freqs, websites.get(sat))
         sky = sky_arc(row)
+        tle_row = tle_map.get(sat)
+        try:
+            pass_track = (pass_track_points(tle_row, start, end)
+                         if tle_row else [])
+        except (orbit.OrbitError, ValueError):
+            pass_track = []
         entry = catalog.get(sat)
         info_url, info_host = satellite_info_url(
             entry["website"] if entry else None, sat)
@@ -759,6 +782,10 @@ def index():
             "sky_now": (arc_point(sky, pass_progress(row, now))
                         if sky and row["start_utc"] <= now <= row["end_utc"]
                         else None),
+            # Az átvonulás saját útvonala a világtérképen — a kelés és a
+            # nyugvás közti rögzített szakasz, megkülönböztetve a "most itt
+            # jár" élő nyomtól, ami mindig a jelen körüli mozgó ablakot mutatja.
+            "pass_track": pass_track,
         })
         item["modes"] = sorted(pass_mode_groups(item, other_modes.get(sat, ())),
                                key=lambda key: list(MODE_LABELS).index(key))

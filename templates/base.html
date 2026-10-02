@@ -274,6 +274,12 @@
     fill: none; stroke: var(--accent); stroke-width: 1.6;
     stroke-opacity: .8; vector-effect: non-scaling-stroke;
   }
+  /* Az átvonulás saját, rögzített útvonala: más szín ÉS szaggatás, hogy a
+     fenti élő nyomtól színtévesztéssel is megkülönböztethető legyen. */
+  .map .pass-path polyline {
+    fill: none; stroke: var(--hot); stroke-width: 1.4;
+    stroke-dasharray: 3 2; stroke-opacity: .9; vector-effect: non-scaling-stroke;
+  }
   .map .home { stroke: var(--sstv); stroke-width: 1.6; fill: none; }
 
   .track .where { font-size: .72rem; color: var(--muted); }

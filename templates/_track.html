@@ -36,10 +36,21 @@
 
     <svg class="map" viewBox="0 0 360 180" preserveAspectRatio="none"
          role="button" tabindex="0" aria-expanded="false">
-      <title>A műhold alatti pont és a pályanyom — kattints a nagyításhoz</title>
+      <title>A műhold alatti pont, az átvonulás útvonala (szaggatott) és a
+        jelenlegi pályanyom — kattints a nagyításhoz</title>
       <rect class="sea" x="0" y="0" width="360" height="180"/>
       <use class="land" href="#worldland"/>
       <path class="grid" d="M0 90H360M180 0V180"/>
+      {# Az átvonulás saját útvonala: rögzített, a kelés és a nyugvás közti
+         szakasz — szaggatott vonallal, hogy a "most itt jár" élő nyomtól
+         (lásd lejjebb, .path) jól megkülönböztethető legyen. #}
+      {% if p.pass_track %}
+        <g class="pass-path">
+          {% for points in p.pass_track %}
+            <polyline points="{{ points }}"/>
+          {% endfor %}
+        </g>
+      {% endif %}
       <g class="path"></g>
       <path class="home" d="M{{ observer_xy[0] - 4 }} {{ observer_xy[1] - 4 }} l8 8
                             M{{ observer_xy[0] + 4 }} {{ observer_xy[1] - 4 }} l-8 8"/>
