@@ -325,6 +325,20 @@
   }
   .aim-btn:hover { background: var(--accent-bg-hover); }
 
+  /* Értesítés-kérés gomb. Alapból rejtett, mint az aim-btn; a base.html
+     szkriptje mutatja meg, ha a böngésző támogatja a Notification API-t.
+     Aktív (feliratkozott) állapotban a "hot" szín jelzi, hogy be van állítva. */
+  .notify-btn {
+    margin-top: .5rem; margin-left: .4rem; padding: .3rem .7rem; border-radius: 999px;
+    border: 1px solid var(--accent-line); background: var(--accent-bg);
+    color: var(--accent); font-size: .8125rem; font-weight: 600; cursor: pointer;
+  }
+  .notify-btn:hover { background: var(--accent-bg-hover); }
+  .notify-btn.active {
+    border-color: var(--hot-line); background: var(--hot-bg); color: var(--hot);
+  }
+  .notify-btn.active:hover { background: var(--hot-bg); }
+
   /* A modál a zoom-backdroppal azonos mintát követi, de saját, magasabb
      rétegben (70+), hogy sose ütközzön egy épp nagyított grafikával. */
   .aim-backdrop {
@@ -1502,6 +1516,113 @@ var prefix = {{ request.script_root|tojson }} || '';
     var question = form.getAttribute && form.getAttribute('data-confirm');
     if (question && !window.confirm(question)) event.preventDefault();
   });
+})();
+
+// Értesítés kérése egyes átvonulásokra. Nincs fiók és szerver-oldali
+// ütemező sem: a kiválasztást a böngésző localStorage-ában tartjuk, és a
+// böngésző Notification API-jával szólunk LEAD_SECONDS-szal a kelés előtt —
+// ez csak addig működik, amíg ez a lap nyitva van (háttérben lévő fülön is,
+// de teljesen bezárt böngészőnél nem).
+(function () {
+  var buttons = Array.prototype.slice.call(
+    document.querySelectorAll('.notify-btn[data-norad]'));
+  if (!buttons.length || typeof Notification === 'undefined') return;
+
+  var LEAD_SECONDS = 5 * 60;
+  var STORE_KEY = 'notifyPasses';
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); }
+    catch (e) { return {}; }
+  }
+  function save(store) {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
+    catch (e) { /* privát mód */ }
+  }
+  function keyOf(norad, start) { return norad + ':' + start; }
+
+  function paint(btn, active) {
+    btn.classList.toggle('active', active);
+    btn.textContent = active ? '🔔 Értesítés kérve' : '🔔 Értesítést kérek';
+    btn.title = active
+      ? 'Kattints a lemondáshoz'
+      : 'Értesítés ' + (LEAD_SECONDS / 60) + ' perccel a kelés előtt (amíg ez a lap nyitva van)';
+  }
+
+  // Lejárt bejegyzések törlése: ne gyűljenek a tárban, és ne mutasson
+  // aktívnak egy már elmúlt átvonuláshoz tartozó gombot.
+  var now = Date.now() / 1000;
+  var store = load();
+  Object.keys(store).forEach(function (k) {
+    if (store[k].end <= now) delete store[k];
+  });
+  save(store);
+
+  buttons.forEach(function (btn) {
+    var norad = btn.getAttribute('data-norad');
+    var start = +btn.getAttribute('data-start');
+    var end = +btn.getAttribute('data-end');
+    if (end <= now) return; // elmúlt átvonulásra nem kérhető értesítés
+    btn.hidden = false;
+    var key = keyOf(norad, start);
+    paint(btn, !!store[key]);
+
+    btn.addEventListener('click', function () {
+      var current = load();
+      if (current[key]) {
+        delete current[key];
+        save(current);
+        paint(btn, false);
+        return;
+      }
+      function subscribe() {
+        var s = load();
+        s[key] = {
+          norad: norad, start: start, end: end,
+          sat: btn.getAttribute('data-sat'), notified: false
+        };
+        save(s);
+        paint(btn, true);
+      }
+      if (Notification.permission === 'granted') {
+        subscribe();
+      } else if (Notification.permission === 'denied') {
+        window.alert('A böngésző letiltotta az értesítéseket ehhez az oldalhoz — ' +
+                     'engedélyezd a böngésző beállításaiban, ha szeretnél visszajelzést.');
+      } else {
+        Notification.requestPermission().then(function (perm) {
+          if (perm === 'granted') subscribe();
+        });
+      }
+    });
+  });
+
+  // Amíg ez a lap nyitva van, rendszeresen megnézzük, van-e esedékes
+  // értesítés — a pontosság a lekérdezési időköz fele, ami egy 5 perces
+  // előrejelzésnél bőven elég.
+  function checkDue() {
+    var s = load();
+    var t = Date.now() / 1000;
+    var changed = false;
+    Object.keys(s).forEach(function (k) {
+      var entry = s[k];
+      if (entry.end <= t) { delete s[k]; changed = true; return; }
+      if (!entry.notified && t >= entry.start - LEAD_SECONDS) {
+        try {
+          new Notification(entry.sat + ' — hamarosan átvonul', {
+            body: 'Kelés kb. ' + Math.max(0, Math.round((entry.start - t) / 60)) +
+                  ' perc múlva.',
+            tag: k
+          });
+        } catch (e) { /* néhány böngésző csak service workerből engedi */ }
+        entry.notified = true;
+        changed = true;
+      }
+    });
+    if (changed) save(s);
+  }
+  checkDue();
+  setInterval(checkDue, 20000);
 })();
 </script>
 </body>

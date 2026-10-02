@@ -84,5 +84,14 @@
        működő tájoló-szenzort az eszközön — enélkül a gomb rejtve marad. #}
     <button type="button" class="aim-btn" data-norad="{{ p.norad_id }}"
             data-sat="{{ p.sat_name|e }}" hidden>🧭 Antenna irányzás</button>
+
+    {# Böngésző-értesítés egy adott átvonulás előtt. Nincs fiók vagy
+       szerver-oldali ütemező: a kiválasztást a base.html szkriptje
+       localStorage-ban tartja, és amíg ez a lap nyitva van, figyeli az
+       időpontokat. Alapból rejtett: csak akkor jelenik meg, ha a böngésző
+       támogatja a Notification API-t, és az átvonulás még nem múlt el. #}
+    <button type="button" class="notify-btn" data-norad="{{ p.norad_id }}"
+            data-start="{{ p.start_utc }}" data-end="{{ p.end_utc }}"
+            data-sat="{{ p.sat_name|e }}" hidden>🔔 Értesítést kérek</button>
   </div>
 {% endmacro %}
