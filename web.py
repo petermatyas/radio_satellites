@@ -404,6 +404,38 @@ def pass_track_points(tle_row, start_ts, end_ts):
             for segment in track_segments(points)]
 
 
+def horizon_points(observer, alt_km, steps=72):
+    """A rádióhorizont körének pontjai a megfigyelő körül, fok-koordinátákban.
+
+    A kör középponti szöge onnan adódik, hogy a látóvonal éppen érinti a
+    Föld felszínét: cos(szög) = R / (R + magasság) — ezen a körön kívül a
+    műhold ezen a magasságon már a horizont alatt van, akármerre néz is az
+    antenna.
+    """
+    if not alt_km or alt_km <= 0:
+        return []
+    radius = orbit.EARTH_RADIUS_KM
+    angle = math.acos(radius / (radius + alt_km))
+    lat1 = math.radians(observer[0])
+    lon1 = math.radians(observer[1])
+    points = []
+    for i in range(steps + 1):
+        bearing = math.radians(360 * i / steps)
+        lat2 = math.asin(math.sin(lat1) * math.cos(angle)
+                         + math.cos(lat1) * math.sin(angle) * math.cos(bearing))
+        lon2 = lon1 + math.atan2(
+            math.sin(bearing) * math.sin(angle) * math.cos(lat1),
+            math.cos(angle) - math.sin(lat1) * math.sin(lat2))
+        points.append((math.degrees(lat2), (math.degrees(lon2) + 540) % 360 - 180))
+    return points
+
+
+def horizon_segments(observer, alt_km):
+    """A horizont-kör, térkép-koordinátás polyline-pontokként (lásd pass_track_points)."""
+    return [" ".join(f"{x:g},{y:g}" for x, y in segment)
+            for segment in track_segments(horizon_points(observer, alt_km))]
+
+
 def live_positions(conn, norad_ids, observer, track=True):
     """NORAD ID -> hol jár most a műhold, és merről látszik.
 
@@ -434,6 +466,9 @@ def live_positions(conn, norad_ids, observer, track=True):
             "heading": map_heading(row),
             "epoch_age_days": round(age, 1),
             "stale": age > TLE_STALE_DAYS,
+            # Meddig "látszik" ez a magasság a megfigyelőtől — a Föld
+            # görbülete szabja a határt, nem az átvonulás-specifikus irány.
+            "horizon": horizon_segments(observer, now["alt_km"]),
         }
         if track:
             # Csak kérésre kerül bele. ÜRES listát sem küldünk helyette: a

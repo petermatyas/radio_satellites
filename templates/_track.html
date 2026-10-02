@@ -41,6 +41,13 @@
       <rect class="sea" x="0" y="0" width="360" height="180"/>
       <use class="land" href="#worldland"/>
       <path class="grid" d="M0 90H360M180 0V180"/>
+      {# A rádióhorizont köre a megfigyelő körül: ezen kívül a műhold a
+         pillanatnyi magasságán már nem látszik, akármerre néz is az antenna.
+         A kör a műhold magasságával együtt változik, ezért élőben is
+         frissül — lásd base.html, a pozíciófrissítő szkript. #}
+      <g class="horizon">
+        {% if pos %}{% for points in pos.horizon %}<polyline points="{{ points }}"/>{% endfor %}{% endif %}
+      </g>
       {# Az átvonulás saját útvonala: rögzített, a kelés és a nyugvás közti
          szakasz — szaggatott vonallal, hogy a "most itt jár" élő nyomtól
          (lásd lejjebb, .path) jól megkülönböztethető legyen. #}
