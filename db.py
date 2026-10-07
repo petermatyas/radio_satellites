@@ -1,11 +1,17 @@
 """SQLite tároló az N2YO radio pass adatokhoz.
 
-A duplikációt a (norad_id, start_utc) páron lévő UNIQUE index akadályozza meg:
-ugyanaz az átvonulás akkor sem kerül be kétszer, ha többször töltjük le.
+A duplikációt két réteg akadályozza meg: a (norad_id, observer_lat,
+observer_lon, start_utc) páron lévő UNIQUE index a byte-azonos
+újraletöltéseket szűri ki, a save_passes() pedig minden letöltés előtt
+törli az adott műhold+megfigyelő még be nem következett, korábban mentett
+sorait — enélkül egy elcsúszott start_utc (pl. min_elevation-váltás vagy
+frissült pályaelem miatt) átcsúszna az indexen, és ugyanaz az átvonulás
+kétszer jelenne meg a listán.
 """
 
 import re
 import sqlite3
+import time
 from pathlib import Path
 
 DEFAULT_DB_PATH = Path(__file__).with_name("sats.sqlite3")
@@ -522,8 +528,22 @@ def save_passes(conn, norad_id, observer, passes):
     observer: (lat, lon, alt) tuple
     passes:   az N2YO válasz "passes" listája
     Visszatér: (új sorok száma, már meglévő – kihagyott – sorok száma)
+
+    Beszúrás előtt töröljük az erre a műhold+megfigyelő párosra még be nem
+    következett, korábban mentett átvonulásokat: egy min_elevation-váltás
+    vagy egy frissített pályaelem a start_utc-t pár másodperccel/perccel
+    elcsúsztathatja, ami a UNIQUE indexen átcsúszva második sorként kerülne
+    be ugyanarra a fizikai átvonulásra, és a listán duplikátumként látszana.
+    A friss letöltés mindig a teljes, aktuális előrejelzést hozza, ezért
+    nyugodtan felülírhatja a régi jövőbeli sorokat — a már lezajlott
+    átvonulások (start_utc a múltban) érintetlenek maradnak.
     """
     lat, lon, alt = normalize_observer(*observer)
+    conn.execute(
+        "DELETE FROM passes WHERE norad_id = ? AND observer_lat = ? "
+        "AND observer_lon = ? AND start_utc >= ?",
+        (norad_id, lat, lon, int(time.time())),
+    )
     inserted = 0
 
     for p in passes:
